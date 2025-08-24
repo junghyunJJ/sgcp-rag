@@ -1,0 +1,16 @@
+/sc:improve --persona-architect
+
+1. 'langconnect_rag' mcp server update
+@/Users/jungj2/Dropbox/Metadata/aiagent/run_agent/src/mcp_servers/ 폴더에있는 
+1) arxiv_search
+2) serper_search 
+3) tavily_search 
+MCP servers 와 동일한 struture를 구성해서 
+@/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/mcpserver/mcp_server.py를 파일을 Refactorization 및 업데이트 해주면 될 것 같아요.
+그리고 내가 일단 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/mcpserver/base_mcp_server.py 는 추가해 왔으니 사용하면 됩니다.
+
+2. generate docker file
+@/Users/jungj2/Dropbox/Metadata/aiagent/run_agent/docker에 보면, MCP server들을 docker 형태로 배포를 하는데,
+'langconnect_rag' mcp server 도 이런식으로 배포 예정입니다. @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker 에 추가해 주세요
+
+ --ultrathink  
