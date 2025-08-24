@@ -1,0 +1,11 @@
+# Test PDF Document
+
+This is a test document to verify pymupdf4llm works correctly.
+
+## Features
+
+- Converts PDFs to markdown format
+- Preserves document structure  
+- Suitable for LLM processing
+
+This confirms our PDF to markdown conversion is working.

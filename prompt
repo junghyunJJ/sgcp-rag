@@ -1,0 +1,126 @@
+<!-- Spatial Omics Analysis Pipeline Construction Request
+
+Please construct a spatial omics analysis pipeline using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in LangConnect RAG MCP.
+
+1. Preprocessing
+
+Search for preprocessing methodologies from RAG and select optimal preprocessing methods Include quality control, normalization, batch effect correction, etc.
+
+Specify advantages, disadvantages, and application conditions for each method
+
+2. Cell Type Deconvolution or Annotation
+
+Search cell type deconvolution or annotation methods from stored materials
+
+Select optimal methods considering the characteristics of spatial transcriptomics data
+
+NOTE!! spot-based ST and single cell resolution data is need to run Cell Type Deconvolution and cell tpye Annotation, respectively.
+
+3. Cell-Cell Interaction Analysis
+
+Review cell-cell interaction analysis methodologies utilizing spatial information
+
+Include ligand-receptor interaction and spatial neighborhood analysis
+
+Include statistical validation methods
+
+Requirements:
+
+Programming Language Recommendation: Based on the tools and packages found in RAG, recommend whether R or Python (or a combination) would be more suitable for each analysis step, considering:
+
+Package availability and maturity
+
+Community support and documentation
+
+Performance and scalability
+
+Integration capabilities between different tools
+
+Provide evidence by searching relevant materials from RAG for each step
+
+Include practical implementation code examples in the recommended language(s)
+
+Specify computational requirements for each methodology
+
+Present an integrated workflow for the entire pipeline
+
+Final Deliverables:
+
+Please summarize too names using "1. Preprocessing" -> "2. Cell Type Deconvolution / Annotation" -> "3. Cell-Cell Interaction Analysis" . NOT THE ANALYSIS CODE.
+
+Language recommendation with detailed justification for the entire pipeline
+
+Rationale for methodology selection at each step
+
+Executable analysis pipeline code in the recommended language(s)
+
+Expected output formats and interpretation guide -->
+
+
+
+    ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+    │ Tool name of  │     │ Tool name of  │     │ Tool name of  │
+    │ preprocessing ├────►│ deconvolution ├────►│     CCI       │
+    └───────┬───────┘     └───────────────┘     └───────────────┘
+            │                                      ▲   
+            │             ┌───────────────┐        │   
+            │             │  Tool name of │        │
+            └────────────►│  cell tpye    ├────────┘   
+                          │   annotation  │
+                          └───────────────┘          
+
+Please construct a spatial omics analysis plan using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in LangConnect RAG MCP.
+
+You are a spatial biolofy expert, so you can construct pipelin plan for a spatial omics analysis using the papers and GitHub repository contents related to spatial omics tools.
+ 
+1. Preprocessing
+ - Search for preprocessing methodologies from RAG and select optimal preprocessing methods for quality control
+ 
+2. Cell Type Deconvolution or cell tpye nnotation
+ - Search cell type deconvolution for spot-based ST data or cell tpye annotation methods for single cell resolution data from stored materials
+ - NOTE!! spot-based ST and single cell resolution data is need to run Cell Type Deconvolution and cell tpye Annotation, respectively.
+
+3. Cell-Cell Interaction Analysis
+ - Review cell-cell interaction analysis methodologies utilizing spatial information
+
+4. summary 
+ - Select optimal methods considering the characteristics of spatial transcriptomics data.
+ - Recommendation of Programming Language based on the tools and packages found in RAG, recommend whether R or Python (or a combination) would be more suitable for each analysis step, considering:
+   * Package availability and maturity
+   * Community support and documentation
+   * Performance and scalability
+   * Integration capabilities between different tools
+   * Provide evidence by searching relevant materials from RAG for each step
+   * Include practical implementation code examples in the recommended language(s)
+   * Specify computational requirements for each methodology
+   * Present an integrated workflow for the entire pipeline:
+   "Tool names of preprocessing" -> "Tool name of Cell Type Deconvolution or cell tpye Annotation" -> "Tool name of  Cell-Cell Interaction Analysis"
+   [NOTE] You don't provide anlayiss code!
+  
+- Select optimal methods considering the characteristics of spatial transcriptomics data.
+ 
+
+You must use MCP tool(`langconnect-rag-mcp`) to build the pepeline plan the question.
+Here are additional information that you need to consider:
+ - Target Collection: pipeline
+ - Search Type: hybrid(preferred)
+ - The file name: tool name
+
+## Search Guidelines:
+Follow the guidelines step-by-step to find the answer.
+ 1. Use `list_collections` to list up collections and find right **Collection ID** for user's request
+ 2. Use `multi_query` to generate at least 3 sub-questions which are related to original user's request
+ 3. Search all queries generated from previous step(`multi_query`) and find useful documents form collection.
+ 4. Use searched documents to answer the question.
+ [Note] If you can't find your answer from `langconnect-rag-mcp` tool, just say "I can't find ant revevant source to answer the question"
+
+---
+## Format:
+(answer to the question)
+**출처**
+- (Source)
+- ...
+---
+
+[Note]
+ - Append sources that you've referenced at the very end of your answer.
