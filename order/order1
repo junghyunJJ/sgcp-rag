@@ -1,9 +1,12 @@
 /sc:improve --persona-architect
 
-기본적으로 langconnect_mcp는  @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Dockerfile, @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker-compose.yml 를 사용해서 
-dockr에 올린 후 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Makefile 로 Create MCP configuration 로 사용을 하는데,
-이걸 구조적으로 업데이트를 해서 사용하려고해. 구조적으로 업데이트는:
+langconnect_mcp 구조적으로 업데이트를 해서 사용하려고해. 
 
+기본적으로 지금 사용하고 있는 langconnect_mcp는 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Dockerfile, @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker-compose.yml 를 사용해서 
+dockr에 올린 후 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Makefile 로 Create MCP configuration 로 사용해.
+자세한 내용은 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/order/langconnect-client.txt를 참조하면 돼
+
+구조적으로 업데이트는:
 1. 'langconnect_rag' mcp server update
 @/Users/jungj2/Dropbox/Metadata/aiagent/run_agent/src/mcp_servers/ 폴더에있는 
 1) arxiv_search
