@@ -1,8 +1,8 @@
 /sc:improve --persona-architect
 
-langconnect_mcp 구조적으로 업데이트를 해서 사용하려고해. 
+'langconnect_mcp' 구조적으로 업데이트를 해서 사용하려고해. 
 
-기본적으로 지금 사용하고 있는 langconnect_mcp는 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Dockerfile, @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker-compose.yml 를 사용해서 
+먼저 'langconnect_mcp' 는 기본적으로 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Dockerfile, @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker-compose.yml 를 사용해서 
 dockr에 올린 후 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Makefile 로 Create MCP configuration 로 사용해.
 자세한 내용은 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/order/langconnect-client.txt를 참조하면 돼
 
@@ -12,12 +12,12 @@ dockr에 올린 후 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/Makefile
 1) arxiv_search
 2) serper_search 
 3) tavily_search 
-MCP servers 와 동일한 struture를 구성해서 
-@/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/mcpserver/mcp_server.py를 파일을 Refactorization 및 업데이트 해주면 될 것 같아요.
+처럼 만들어주면 돼.
 그리고 내가 일단 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/mcpserver/base_mcp_server.py 는 추가해 왔으니 사용하면 됩니다.
 
 2. generate docker file
 @/Users/jungj2/Dropbox/Metadata/aiagent/run_agent/docker에 보면, MCP server들을 docker 형태로 배포를 하는데,
 'langconnect_rag' mcp server 도 이런식으로 배포 예정입니다. @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker 에 추가해 주세요
 
+정리를 하면 기본적으로 @/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docker 에 실행 파일을 다 추가해 주면 됩니다.
  --ultrathink  
