@@ -36,7 +36,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8888:8080"
     env_file:
       - .env
     environment:
@@ -50,7 +50,7 @@ services:
       POSTGRES_SSLMODE: disable  # For development environment
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}
       # Allow all localhost origins
-      ALLOW_ORIGINS: '["http://localhost:3000", "http://localhost:8080", "http://localhost", "http://127.0.0.1:3000", "http://127.0.0.1:8080", "http://127.0.0.1"]'
+      ALLOW_ORIGINS: '["http://localhost:3005", "http://localhost:8888", "http://localhost", "http://127.0.0.1:3005", "http://127.0.0.1:8888", "http://127.0.0.1"]'
     volumes:
       - ./langconnect:/app/langconnect
     networks:
@@ -61,22 +61,22 @@ services:
       context: ./next-connect-ui
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8080
-        NEXTAUTH_URL: http://localhost:3000
+        NEXT_PUBLIC_API_URL: http://localhost:8888
+        NEXTAUTH_URL: http://localhost:3005
         NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
     container_name: next-connect-ui
     restart: always
     depends_on:
       - api
     ports:
-      - "3000:3000"
+      - "3005:3000"
     env_file:
       - .env
     environment:
       API_URL: http://api:8080
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3005
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_API_URL: http://localhost:8888
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_KEY: ${SUPABASE_KEY}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
