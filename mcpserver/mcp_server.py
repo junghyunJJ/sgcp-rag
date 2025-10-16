@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """LangConnect MCP Server using FastMCP (stdio)"""
 
+import asyncio
 import json
+import mimetypes
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -26,7 +30,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # Create FastMCP server
 mcp = FastMCP(
     name="langconnect-rag-mcp",
-    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
+    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
 )
 
 
@@ -122,6 +126,33 @@ class LangConnectClient:
 
 # Initialize client
 client = LangConnectClient(API_BASE_URL, SUPABASE_JWT_SECRET)
+
+
+# Helper function for file path validation
+def validate_file_path(file_path: str) -> Path:
+    """Validate and resolve file path safely.
+
+    Args:
+        file_path: Path to the file to validate
+
+    Returns:
+        Resolved Path object
+
+    Raises:
+        ValueError: If file doesn't exist, is not a file, or other validation errors
+    """
+    try:
+        path = Path(file_path).expanduser().resolve()
+    except Exception as e:
+        raise ValueError(f"Invalid file path '{file_path}': {e}")
+
+    if not path.exists():
+        raise ValueError(f"File not found: {file_path}")
+
+    if not path.is_file():
+        raise ValueError(f"Not a file (possibly a directory): {file_path}")
+
+    return path
 
 
 @mcp.tool
@@ -340,7 +371,13 @@ async def list_documents(collection_id: str, limit: int = 20) -> str:
 
 
 @mcp.tool
-async def add_documents(collection_id: str, text: str) -> str:
+async def add_documents(
+    collection_id: str,
+    text: str,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
+    filename: str = "document.txt",
+) -> str:
     """Add a text document to a collection.
 
     This function adds a new text document to an existing collection. The document text
@@ -358,16 +395,36 @@ async def add_documents(collection_id: str, text: str) -> str:
               that you want to make searchable. The text will be automatically chunked into
               smaller segments for optimal retrieval performance. Can be any length, but
               very large texts will be processed in chunks.
+        chunk_size: Maximum number of characters in each chunk (default: 1000).
+                   Larger chunks preserve more context but may reduce precision.
+        chunk_overlap: Number of overlapping characters between chunks (default: 200).
+                      Overlap helps maintain context across chunk boundaries.
+        filename: Optional filename for the document (default: "document.txt").
+                 Used for tracking and metadata purposes.
 
     Returns:
         str: Success message indicating the document was added and the number of chunks created.
              Format: "Document added successfully! Created N chunks."
              If the operation fails, returns an error message with details.
     """
-    metadata = {"source": "mcp-input", "created_at": datetime.now().isoformat()}
+    # Validate text size (10MB limit for safety)
+    text_bytes = text.encode("utf-8")
+    max_size = 10 * 1024 * 1024  # 10MB
+    if len(text_bytes) > max_size:
+        return f"Error: Document too large ({len(text_bytes)} bytes). Maximum size is {max_size} bytes (10MB)."
 
-    files = [("files", ("document.txt", text.encode("utf-8"), "text/plain"))]
-    data = {"metadatas_json": json.dumps([metadata])}
+    metadata = {
+        "source": "mcp-input",
+        "created_at": datetime.now().isoformat(),
+        "filename": filename,
+    }
+
+    files = [("files", (filename, text_bytes, "text/plain"))]
+    data = {
+        "metadatas_json": json.dumps([metadata]),
+        "chunk_size": str(chunk_size),
+        "chunk_overlap": str(chunk_overlap),
+    }
 
     # Remove Content-Type for multipart
     headers = client.headers.copy()
@@ -385,8 +442,207 @@ async def add_documents(collection_id: str, text: str) -> str:
         result = response.json()
 
     if result.get("success"):
-        return f"Document added successfully! Created {len(result.get('added_chunk_ids', []))} chunks."
+        chunks_created = len(result.get("added_chunk_ids", []))
+        message = f"Document added successfully! Created {chunks_created} chunks from {len(text_bytes)} bytes."
+        if result.get("warnings"):
+            message += f"\nWarnings: {result['warnings']}"
+        return message
     return f"Failed to add document: {result.get('message', 'Unknown error')}"
+
+
+@mcp.tool
+async def add_documents_from_files(
+    collection_id: str,
+    file_paths: list[str] | str,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
+) -> str:
+    """Upload files directly from local filesystem without reading content into text first.
+
+    This function is more efficient than add_documents() for large files or binary files
+    (PDF, DOCX, etc.) because it doesn't require loading file content into Claude's context.
+    The MCP server reads the files directly and uploads them to the API. This approach
+    saves context window space and supports all file types that the API can process.
+
+    Supported file types: PDF, DOCX, TXT, MD, HTML, and any other text-based formats.
+
+    Args:
+        collection_id: The unique identifier of the collection to add documents to.
+                      This should be obtained from the list_collections() function or
+                      provided by the user. Must be a valid UUID string for an existing collection.
+        file_paths: List of absolute or relative file paths to upload, OR a single file path string.
+                   Each path will be validated before processing. Can upload multiple files in a
+                   single call for batch processing efficiency.
+                   Example: ["/path/to/doc1.pdf", "~/doc2.txt"] or "/path/to/single.pdf"
+        chunk_size: Maximum number of characters in each chunk (default: 1000).
+                   Larger chunks preserve more context but may reduce precision.
+        chunk_overlap: Number of overlapping characters between chunks (default: 200).
+                      Overlap helps maintain context across chunk boundaries.
+
+    Returns:
+        str: Success message indicating the number of files processed and chunks created.
+             Format: "Uploaded N file(s) successfully! Created M total chunks."
+             If some files fail, includes warnings about which files failed.
+             If all files fail, returns error message with details.
+
+    Examples:
+        >>> add_documents_from_files("uuid-123", ["/path/to/document.pdf"])
+        "Uploaded 1 file(s) successfully! Created 45 total chunks."
+
+        >>> add_documents_from_files("uuid-123", ["~/paper1.pdf", "~/paper2.txt"], chunk_size=500)
+        "Uploaded 2 file(s) successfully! Created 128 total chunks."
+
+        >>> add_documents_from_files("uuid-123", "/path/to/single.txt")
+        "Uploaded 1 file(s) successfully! Created 12 total chunks."
+    """
+    # CRITICAL FIX: Handle parameter serialization from MCP
+    # Claude Desktop may pass file_paths as string instead of list
+    if isinstance(file_paths, str):
+        print(f"[MCP DEBUG] Received file_paths as string: {file_paths}", file=sys.stderr, flush=True)
+        # Try to parse as JSON array
+        try:
+            parsed = json.loads(file_paths)
+            if isinstance(parsed, list):
+                file_paths = parsed
+                print(f"[MCP DEBUG] Parsed JSON to list: {file_paths}", file=sys.stderr, flush=True)
+            else:
+                # Single file path as string (not JSON)
+                file_paths = [file_paths]
+                print(f"[MCP DEBUG] Wrapped single path in list", file=sys.stderr, flush=True)
+        except json.JSONDecodeError:
+            # Single file path as plain string
+            file_paths = [file_paths]
+            print(f"[MCP DEBUG] Not JSON, wrapped in list", file=sys.stderr, flush=True)
+
+    if not isinstance(file_paths, list):
+        error_msg = f"Error: file_paths must be a list or string, got {type(file_paths).__name__}"
+        print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
+        return error_msg
+
+    print(f"[MCP DEBUG] Processing {len(file_paths)} file(s)", file=sys.stderr, flush=True)
+    # Validate all file paths first
+    validated_files: list[tuple[Path, str]] = []
+    failed_files: list[str] = []
+
+    for file_path in file_paths:
+        try:
+            path = validate_file_path(file_path)
+
+            # Check file size (10MB limit)
+            file_size = path.stat().st_size
+            max_size = 10 * 1024 * 1024  # 10MB
+            if file_size > max_size:
+                failed_files.append(f"{file_path} (too large: {file_size} bytes)")
+                continue
+
+            # Detect MIME type
+            mime_type, _ = mimetypes.guess_type(str(path))
+            if not mime_type:
+                mime_type = "application/octet-stream"
+
+            validated_files.append((path, mime_type))
+
+        except ValueError as e:
+            failed_files.append(f"{file_path} ({str(e)})")
+
+    if not validated_files:
+        error_msg = "Failed to validate any files."
+        if failed_files:
+            error_msg += f"\nFailed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
+        return error_msg
+
+    # Prepare files for upload
+    # FIX: Use synchronous file reading instead of asyncio.to_thread()
+    # This is more reliable in MCP stdio context and files are small (< 10MB)
+    files_to_upload = []
+    metadatas = []
+
+    for path, mime_type in validated_files:
+        try:
+            # Read file content synchronously
+            # This is safe because:
+            # 1. Files are limited to 10MB
+            # 2. Modern SSDs make small file I/O very fast
+            # 3. Avoids thread pool executor issues in MCP context
+            file_content = path.read_bytes()
+
+            # Pass bytes content to httpx (not file handle)
+            files_to_upload.append(("files", (path.name, file_content, mime_type)))
+
+            # Create metadata for each file
+            metadata = {
+                "source": path.name,  # Use original filename as source
+                "created_at": datetime.now().isoformat(),
+                "filename": path.name,
+                "file_path": str(path),
+                "mime_type": mime_type,
+            }
+            metadatas.append(metadata)
+        except Exception as e:
+            print(f"[MCP ERROR] Failed to read {path}: {e}", file=sys.stderr, flush=True)
+            failed_files.append(f"{path.name} (read error: {str(e)})")
+
+    if not files_to_upload:
+        return "Failed to read any files for upload."
+
+    # Prepare form data
+    data = {
+        "metadatas_json": json.dumps(metadatas),
+        "chunk_size": str(chunk_size),
+        "chunk_overlap": str(chunk_overlap),
+    }
+
+    # Remove Content-Type for multipart
+    headers = client.headers.copy()
+    headers.pop("Content-Type", None)
+
+    # Upload to API with bytes content (no file handles to manage)
+    try:
+        print(f"[MCP DEBUG] Uploading {len(files_to_upload)} file(s) to API...", file=sys.stderr, flush=True)
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.post(
+                f"{client.base_url}/collections/{collection_id}/documents",
+                headers=headers,
+                files=files_to_upload,
+                data=data,
+                timeout=120.0,
+            )
+            print(f"[MCP DEBUG] Response status: {response.status_code}", file=sys.stderr, flush=True)
+            response.raise_for_status()
+            result = response.json()
+
+        if result.get("success"):
+            chunks_created = len(result.get("added_chunk_ids", []))
+            message = (
+                f"Uploaded {len(validated_files)} file(s) successfully! "
+                f"Created {chunks_created} total chunks."
+            )
+
+            if failed_files:
+                message += f"\n\nWarning - Failed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
+
+            if result.get("warnings"):
+                message += f"\n\nAPI warnings: {result['warnings']}"
+
+            print(f"[MCP DEBUG] SUCCESS: {message}", file=sys.stderr, flush=True)
+            return message
+        else:
+            error_msg = f"Failed to upload documents: {result.get('message', 'Unknown error')}"
+            print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
+            return error_msg
+
+    except httpx.HTTPError as e:
+        error_msg = f"HTTP error during upload: {str(e)}"
+        print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"[MCP ERROR] Response: {e.response.text}", file=sys.stderr, flush=True)
+        return error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error during upload: {str(e)}"
+        print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return error_msg
 
 
 @mcp.tool

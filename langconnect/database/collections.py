@@ -131,12 +131,12 @@ class CollectionsManager:
         if not rec:
             return None
 
-        metadata = json.loads(rec["cmetadata"])
-        name = metadata.pop("name", "Unnamed")
+        metadata = json.loads(rec["cmetadata"]) if rec["cmetadata"] else {}
+        name = metadata.pop("name", "Unnamed") if metadata else "Unnamed"
         return {
             "uuid": str(rec["uuid"]),
             "name": name,
-            "metadata": metadata,
+            "metadata": metadata or {},
             "table_id": rec["name"],
         }
 

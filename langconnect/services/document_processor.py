@@ -46,6 +46,10 @@ async def process_document(
     file_id = uuid.uuid4()
 
     contents = await file.read()
+    LOGGER.info(
+        f"Processing file: {file.filename}, size: {len(contents)} bytes, "
+        f"chunk_size: {chunk_size}, chunk_overlap: {chunk_overlap}"
+    )
 
     # Determine the actual mime type
     mime_type = file.content_type or "text/plain"
@@ -66,9 +70,16 @@ async def process_document(
         elif filename_lower.endswith(".docx"):
             mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
+    LOGGER.info(f"Detected MIME type: {mime_type}")
+
     blob = Blob(data=contents, mimetype=mime_type)
 
     docs = MIMETYPE_BASED_PARSER.parse(blob)
+    LOGGER.info(f"Parsed {len(docs)} document(s) from file")
+
+    # Calculate total text length before chunking
+    total_text_length = sum(len(doc.page_content) for doc in docs)
+    LOGGER.info(f"Total text length before chunking: {total_text_length} characters")
 
     # Add provided metadata to each document
     if metadata:
@@ -86,6 +97,15 @@ async def process_document(
 
     # Split documents
     split_docs = text_splitter.split_documents(docs)
+    LOGGER.info(f"Created {len(split_docs)} chunks after splitting")
+
+    # Log chunk size distribution
+    if split_docs:
+        chunk_sizes = [len(doc.page_content) for doc in split_docs]
+        LOGGER.info(
+            f"Chunk size stats - min: {min(chunk_sizes)}, max: {max(chunk_sizes)}, "
+            f"avg: {sum(chunk_sizes) / len(chunk_sizes):.0f}"
+        )
 
     # Add the generated file_id to all split documents' metadata
     for split_doc in split_docs:
