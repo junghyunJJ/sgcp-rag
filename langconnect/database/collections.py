@@ -873,16 +873,28 @@ class Collection:
                         "combined_score": normalized_score * 0.3,
                     }
 
-        # Convert combined results to list format
-        all_results = [
-            {
+        # Convert combined results to list format with score normalization
+        all_results = []
+        for result in combined_results.values():
+            combined_score = result["combined_score"]
+
+            # Normalize score to 0-1 range based on result type
+            if result["keyword_score"] == 0:  # semantic-only
+                # Max possible is 0.7 (semantic weight), normalize to 0-1
+                final_score = combined_score / 0.7
+            elif result["semantic_score"] == 0:  # keyword-only
+                # Max possible is 0.3 (keyword weight), normalize to 0-1
+                final_score = combined_score / 0.3
+            else:  # hybrid (both semantic and keyword matched)
+                # Already in 0-1 range (max = 0.7 + 0.3 = 1.0)
+                final_score = combined_score
+
+            all_results.append({
                 "id": result["id"],
                 "page_content": result["page_content"],
                 "metadata": result["metadata"],
-                "score": result["combined_score"],
-            }
-            for result in combined_results.values()
-        ]
+                "score": final_score,
+            })
 
         # Apply metadata filter
         filtered_results = apply_metadata_filter(all_results, filter)
