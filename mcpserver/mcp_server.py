@@ -14,8 +14,7 @@ import httpx
 from dotenv import load_dotenv
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate
-# from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 from fastmcp import FastMCP
 
@@ -197,19 +196,24 @@ async def search_documents(
     )
 
     if not results:
-        return "No results found."
+        return json.dumps({"results": [], "count": 0, "search_type": search_type})
 
-    output = f'<search_results type="{search_type}">\n'
-    for i, result in enumerate(results, 1):
-        output += "  <document>\n"
-        output += f"    <content>{result.get('page_content', '')}</content>\n"
-        output += f"    <metadata>{json.dumps(result.get('metadata', {}), ensure_ascii=False)}</metadata>\n"
-        output += f"    <score>{result.get('score', 0):.4f}</score>\n"
-        output += f"    <id>{result.get('id', 'Unknown')}</id>\n"
-        output += "  </document>\n"
-    output += "</search_results>"
+    # Return JSON format for easier programmatic parsing
+    output = {
+        "results": [
+            {
+                "content": result.get("page_content", ""),
+                "metadata": result.get("metadata", {}),
+                "score": round(result.get("score", 0), 4),
+                "id": result.get("id", "Unknown"),
+            }
+            for result in results
+        ],
+        "count": len(results),
+        "search_type": search_type,
+    }
 
-    return output
+    return json.dumps(output, ensure_ascii=False)
 
 
 @mcp.tool
@@ -720,8 +724,11 @@ async def multi_query(question: str) -> str:
 
     try:
         # Initialize LLM
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, api_key=GOOGLE_API_KEY)
-        # llm = ChatOpenAI(temperature=0, api_key=OPENAI_API_KEY)
+        # from langchain_google_genai import ChatGoogleGenerativeAI
+        # llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, api_key=GOOGLE_API_KEY)
+
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model="gpt-5-nano", api_key=OPENAI_API_KEY)
 
         # Create prompt template
         query_prompt = PromptTemplate(
