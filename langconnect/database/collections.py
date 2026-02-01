@@ -693,14 +693,17 @@ class Collection:
             results = store.similarity_search_with_score(query, k=k)
 
             # Convert to standard format
+            # Note: similarity_search_with_score returns DISTANCE, not similarity
+            # Lower distance = more similar. Convert to similarity: 1 / (1 + distance)
+            # This gives: distance=0 → similarity=1, distance=∞ → similarity=0
             formatted_results = [
                 {
                     "id": doc.id,
                     "page_content": doc.page_content,
                     "metadata": doc.metadata,
-                    "score": score,
+                    "score": 1 / (1 + distance),  # Convert distance to similarity
                 }
-                for doc, score in results
+                for doc, distance in results
             ]
 
             # Apply metadata filter
@@ -823,21 +826,18 @@ class Collection:
         # Combine and deduplicate results
         combined_results = {}
 
-        # Add semantic results with normalized scores
-        max_semantic_score = max(
-            (score for _, score in semantic_results), default=1.0
-        )
-        for doc, score in semantic_results:
-            normalized_score = (
-                score / max_semantic_score if max_semantic_score > 0 else 0
-            )
+        # Add semantic results with distance-to-similarity conversion
+        # Note: similarity_search_with_score returns DISTANCE, not similarity
+        # Lower distance = more similar. Convert to similarity: 1 / (1 + distance)
+        for doc, distance in semantic_results:
+            similarity_score = 1 / (1 + distance)
             combined_results[doc.id] = {
                 "id": doc.id,
                 "page_content": doc.page_content,
                 "metadata": doc.metadata,
-                "semantic_score": normalized_score,
+                "semantic_score": similarity_score,
                 "keyword_score": 0,
-                "combined_score": normalized_score * 0.7,  # 70% weight for semantic
+                "combined_score": similarity_score * 0.7,  # 70% weight for semantic
             }
 
         # Add keyword results with normalized scores
