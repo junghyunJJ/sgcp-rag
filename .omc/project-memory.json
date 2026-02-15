@@ -1,0 +1,405 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1771142472678,
+  "projectRoot": "/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets",
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1771142472669,
+      "keyFiles": [
+        "frontend-kr.png",
+        "frontend.png",
+        "structure.png"
+      ]
+    },
+    "docker": {
+      "path": "docker",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1771142472669,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 4,
+      "lastAccessed": 1771142472669,
+      "keyFiles": [
+        "hybrid-search-score-fix.md",
+        "langconnect_methods_section.md",
+        "langconnect_methods_section_concise.md",
+        "session_2025-01-31_hybrid-search-fix.md"
+      ]
+    },
+    "init-scripts": {
+      "path": "init-scripts",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771142472670,
+      "keyFiles": [
+        "01-init-extensions.sql"
+      ]
+    },
+    "langconnect": {
+      "path": "langconnect",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1771142472670,
+      "keyFiles": [
+        "__init__.py",
+        "__main__.py",
+        "config.py",
+        "prompt",
+        "server.py"
+      ]
+    },
+    "mcpserver": {
+      "path": "mcpserver",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1771142472670,
+      "keyFiles": [
+        "README.md",
+        "__init__.py",
+        "base_mcp_server.py",
+        "create_mcp_json.py",
+        "get_access_token.py"
+      ]
+    },
+    "next-connect-ui": {
+      "path": "next-connect-ui",
+      "purpose": null,
+      "fileCount": 16,
+      "lastAccessed": 1771142472670,
+      "keyFiles": [
+        "Dockerfile",
+        "components.json",
+        "eslint.config.mjs",
+        "jest.config.js",
+        "jest.setup.js"
+      ]
+    },
+    "old": {
+      "path": "old",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1771142472671,
+      "keyFiles": [
+        "CLAUDE.md",
+        "create_test_pdf.py",
+        "sample.pdf",
+        "test.html",
+        "test_pymupdf.pdf"
+      ]
+    },
+    "order": {
+      "path": "order",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1771142472671,
+      "keyFiles": [
+        "langconnect-client.txt",
+        "method_order",
+        "order1",
+        "order1 copy"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 5,
+      "lastAccessed": 1771142472671,
+      "keyFiles": [
+        "22365_3_Prompt Engineering.md",
+        "22365_3_Prompt Engineering.pdf",
+        "conftest.py",
+        "test.ipynb",
+        "test_mcp_server.py"
+      ]
+    },
+    "langconnect/api": {
+      "path": "langconnect/api",
+      "purpose": "API routes",
+      "fileCount": 3,
+      "lastAccessed": 1771142472672,
+      "keyFiles": [
+        "__init__.py",
+        "collections.py",
+        "documents.py"
+      ]
+    },
+    "langconnect/models": {
+      "path": "langconnect/models",
+      "purpose": "Data models",
+      "fileCount": 3,
+      "lastAccessed": 1771142472672,
+      "keyFiles": [
+        "__init__.py",
+        "collection.py",
+        "document.py"
+      ]
+    },
+    "langconnect/services": {
+      "path": "langconnect/services",
+      "purpose": "Business logic services",
+      "fileCount": 2,
+      "lastAccessed": 1771142472672,
+      "keyFiles": [
+        "__init__.py",
+        "document_processor.py"
+      ]
+    },
+    "next-connect-ui/assets": {
+      "path": "next-connect-ui/assets",
+      "purpose": "Static assets",
+      "fileCount": 6,
+      "lastAccessed": 1771142472672,
+      "keyFiles": [
+        "api-tester.png",
+        "collection.png",
+        "documents-chunk.png"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "",
+      "accessCount": 11,
+      "lastAccessed": 1771146716231,
+      "type": "directory"
+    },
+    {
+      "path": "mcpserver/base_mcp_server.py",
+      "accessCount": 5,
+      "lastAccessed": 1771146683397,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver/mcp_server.py",
+      "accessCount": 5,
+      "lastAccessed": 1771146684123,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/database/collections.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146681383,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/documents.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146681787,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/config.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146682901,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/models/document.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146698725,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/database/connection.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146700308,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/services/document_processor.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146707317,
+      "type": "file"
+    },
+    {
+      "path": "langconnect",
+      "accessCount": 4,
+      "lastAccessed": 1771146715073,
+      "type": "directory"
+    },
+    {
+      "path": "langconnect/server.py",
+      "accessCount": 4,
+      "lastAccessed": 1771146941661,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src",
+      "accessCount": 3,
+      "lastAccessed": 1771143421322,
+      "type": "directory"
+    },
+    {
+      "path": "docs/vector-search-pipeline.md",
+      "accessCount": 3,
+      "lastAccessed": 1771144186879,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver/mcp_sse_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1771146701519,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/collections.py",
+      "accessCount": 3,
+      "lastAccessed": 1771146705870,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1771146942292,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 3,
+      "lastAccessed": 1771146943254,
+      "type": "file"
+    },
+    {
+      "path": "docs/architecture-overview.md",
+      "accessCount": 2,
+      "lastAccessed": 1771143808213,
+      "type": "file"
+    },
+    {
+      "path": "docs/document-processing-pipeline.md",
+      "accessCount": 2,
+      "lastAccessed": 1771143808820,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/models/collection.py",
+      "accessCount": 2,
+      "lastAccessed": 1771146699276,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/models/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1771146942823,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/parsers/pymupdf_parser.py",
+      "accessCount": 1,
+      "lastAccessed": 1771143368553,
+      "type": "file"
+    },
+    {
+      "path": "docker-compose.yml",
+      "accessCount": 1,
+      "lastAccessed": 1771143396073,
+      "type": "file"
+    },
+    {
+      "path": "init-scripts/01-init-extensions.sql",
+      "accessCount": 1,
+      "lastAccessed": 1771143410632,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/__init__.py",
+      "accessCount": 1,
+      "lastAccessed": 1771146259911,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/test_documents_api.py",
+      "accessCount": 1,
+      "lastAccessed": 1771146706662,
+      "type": "file"
+    },
+    {
+      "path": ".env.example",
+      "accessCount": 1,
+      "lastAccessed": 1771146722047,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/fixtures.py",
+      "accessCount": 1,
+      "lastAccessed": 1771146722716,
+      "type": "file"
+    },
+    {
+      "path": "tests/conftest.py",
+      "accessCount": 1,
+      "lastAccessed": 1771146723176,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
