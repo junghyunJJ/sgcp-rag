@@ -77,9 +77,6 @@ services:
       NEXTAUTH_URL: http://localhost:3005
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXT_PUBLIC_API_URL: http://localhost:8888
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_KEY: ${SUPABASE_KEY}
-      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
     networks:
       - langconnect-network
 

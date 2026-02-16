@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""LangConnect MCP Server using FastMCP"""
+"""LangConnect MCP Server using FastMCP (SSE transport)"""
 
 import json
 import os
 import sys
 from datetime import datetime
-from getpass import getpass
-from pathlib import Path
 from typing import Optional
 
 import httpx
-import requests
 from dotenv import load_dotenv
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -23,9 +20,6 @@ load_dotenv()
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 SSE_PORT = int(os.getenv("SSE_PORT", "8765"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
@@ -44,156 +38,14 @@ class LineListOutputParser(BaseOutputParser[list[str]]):
 mcp = FastMCP(name="LangConnect")
 
 
-# Authentication functions
-def sign_in(email: str, password: str):
-    """Sign in to Supabase and get access token."""
-    try:
-        response = requests.post(
-            f"{API_BASE_URL}/auth/signin",
-            json={"email": email, "password": password},
-            headers={"Content-Type": "application/json"},
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            return data.get("access_token"), data.get("refresh_token")
-        error = response.json()
-        print(f"Sign in failed: {error.get('detail', 'Unknown error')}")
-        return None, None
-
-    except Exception as e:
-        print(f"Error during sign in: {e!s}")
-        return None, None
-
-
-def test_token(token: str):
-    """Test if the token works by calling the collections endpoint."""
-    try:
-        response = requests.get(
-            f"{API_BASE_URL}/collections", headers={"Authorization": f"Bearer {token}"}
-        )
-        return response.status_code == 200
-    except:
-        return False
-
-
-def update_env_file(token: str):
-    """Update the .env file with the new access token."""
-    env_path = Path(__file__).parent.parent / ".env"
-
-    if not env_path.exists():
-        print("⚠️  .env file not found. Creating new one...")
-        with open(env_path, "w") as f:
-            f.write(f"SUPABASE_JWT_SECRET={token}\n")
-        return
-
-    # Read existing .env file
-    with open(env_path) as f:
-        lines = f.readlines()
-
-    # Update or add SUPABASE_JWT_SECRET
-    updated = False
-    new_lines = []
-
-    for line in lines:
-        if line.strip().startswith("SUPABASE_JWT_SECRET="):
-            new_lines.append(f"SUPABASE_JWT_SECRET={token}\n")
-            updated = True
-        else:
-            new_lines.append(line)
-
-    # If SUPABASE_JWT_SECRET wasn't found, add it
-    if not updated:
-        # Add newline if file doesn't end with one
-        if new_lines and not new_lines[-1].endswith("\n"):
-            new_lines[-1] += "\n"
-        new_lines.append(f"SUPABASE_JWT_SECRET={token}\n")
-
-    # Write back to .env file
-    with open(env_path, "w") as f:
-        f.writelines(new_lines)
-
-    print("✅ Updated .env file with new access token")
-
-
-def get_access_token():
-    """Get Supabase access token through user authentication."""
-    print("\n🔐 Authentication Required")
-    print("=" * 40)
-    print("Please sign in to generate your access token")
-    print()
-
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        print("Error: SUPABASE_URL and SUPABASE_KEY must be set in .env file")
-        return None
-
-    # Get credentials
-    email = input("Enter your email: ")
-    password = getpass("Enter your password: ")
-
-    print("\nSigning in...")
-    access_token, refresh_token = sign_in(email, password)
-
-    if access_token:
-        print("✅ Sign in successful!")
-        print("Testing token...")
-
-        if test_token(access_token):
-            print("✅ Token is valid and working!")
-            # Update .env file with new token
-            update_env_file(access_token)
-            return access_token
-        print("❌ Token validation failed.")
-        return None
-    print("❌ Sign in failed. Please check your credentials.")
-    return None
-
-
-def ensure_valid_token():
-    """Ensure we have a valid token, prompting for login if necessary."""
-    global SUPABASE_JWT_SECRET
-
-    # First check if we have a token
-    if SUPABASE_JWT_SECRET:
-        print("Testing existing token...")
-        if test_token(SUPABASE_JWT_SECRET):
-            print("✅ Existing token is valid!")
-            return SUPABASE_JWT_SECRET
-        else:
-            print("❌ Existing token is invalid or expired.")
-
-    # Get new token
-    print("\n⚠️  No valid token found. Please authenticate.")
-    new_token = get_access_token()
-
-    if new_token:
-        SUPABASE_JWT_SECRET = new_token
-        # Reload the token for the current session
-        os.environ["SUPABASE_JWT_SECRET"] = new_token
-        return new_token
-
-    return None
-
-
 # HTTP client
 class LangConnectClient:
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
-        self.token = token
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        if token:
-            self.headers["Authorization"] = f"Bearer {token}"
-
-    def update_token(self, token: str):
-        """Update the authorization token."""
-        self.token = token
-        if token:
-            self.headers["Authorization"] = f"Bearer {token}"
-        else:
-            self.headers.pop("Authorization", None)
 
     async def request(self, method: str, endpoint: str, **kwargs):
         async with httpx.AsyncClient() as client:
@@ -209,8 +61,8 @@ class LangConnectClient:
             )
 
 
-# Initialize client (will be updated with valid token on startup)
-client = LangConnectClient(API_BASE_URL, "")
+# Initialize client
+client = LangConnectClient(API_BASE_URL)
 
 
 @mcp.tool
@@ -362,10 +214,10 @@ async def multi_query(question: str) -> str:
         # Create prompt template
         query_prompt = PromptTemplate(
             input_variables=["question"],
-            template="""You are an AI language model assistant. Your task is to generate 3 to 5 
-different versions of the given user question to retrieve relevant documents from a vector 
+            template="""You are an AI language model assistant. Your task is to generate 3 to 5
+different versions of the given user question to retrieve relevant documents from a vector
 database. By generating multiple perspectives on the user question, your goal is to help
-the user overcome some of the limitations of the distance-based similarity search. 
+the user overcome some of the limitations of the distance-based similarity search.
 Provide these alternative questions separated by newlines. Do not number them.
 Original question: {question}""",
         )
@@ -387,38 +239,87 @@ Original question: {question}""",
 
 
 @mcp.tool
+async def agentic_search(
+    collection_id: str,
+    question: str,
+    search_type: str = "hybrid",
+    search_limit: int = 5,
+    max_rewrites: int = 3,
+    filter_json: Optional[str] = None,
+) -> str:
+    """Run an agentic RAG search that evaluates, rewrites queries, and validates answers.
+
+    Uses an AI agent that retrieves documents, grades relevance, generates an answer,
+    and validates it. Automatically retries with rewritten queries if quality is poor.
+
+    Args:
+        collection_id: Collection UUID to search in.
+        question: The question to answer.
+        search_type: "semantic", "keyword", or "hybrid" (default).
+        search_limit: Max documents per retrieval. Default 5.
+        max_rewrites: Max query rewrite attempts. Default 3.
+        filter_json: Optional JSON metadata filter string.
+    """
+    search_data = {
+        "question": question,
+        "search_type": search_type,
+        "search_limit": search_limit,
+        "max_rewrites": max_rewrites,
+    }
+
+    if filter_json:
+        try:
+            search_data["filter"] = json.loads(filter_json)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in filter parameter"})
+
+    try:
+        result = await client.request(
+            "POST",
+            f"/collections/{collection_id}/agentic-search",
+            json=search_data,
+        )
+
+        output = {
+            "answer": result.get("generation", ""),
+            "sources": [
+                {
+                    "content": doc.get("page_content", "")[:300],
+                    "metadata": doc.get("metadata", {}),
+                    "score": doc.get("score", 0),
+                }
+                for doc in result.get("relevant_documents", [])
+            ],
+            "steps": result.get("steps", []),
+            "rewrites": result.get("query_rewrites", []),
+            "rewrite_count": result.get("rewrite_count", 0),
+        }
+
+        if result.get("error"):
+            output["error"] = result["error"]
+
+        return json.dumps(output, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": f"Agentic search failed: {e!s}"})
+
+
+@mcp.tool
 async def get_health_status() -> str:
     """Check API health status."""
     result = await client.request("GET", "/health")
-    return f"Status: {result.get('status', 'Unknown')}\nAPI: {API_BASE_URL}\nAuth: {'✓' if SUPABASE_JWT_SECRET else '✗'}"
+    return f"Status: {result.get('status', 'Unknown')}\nAPI: {API_BASE_URL}"
 
 
 if __name__ == "__main__":
-    print("🚀 LangConnect MCP SSE Server")
+    print("LangConnect MCP SSE Server")
     print("=" * 50)
-
-    # Ensure we have a valid token before starting
-    valid_token = ensure_valid_token()
-
-    if not valid_token:
-        print("\n❌ Unable to obtain valid authentication token.")
-        print("Please check your credentials and try again.")
-        sys.exit(1)
-
-    # Update the client with the valid token
-    client.update_token(valid_token)
-
-    print(f"\n✅ Starting MCP SSE server on http://127.0.0.1:{SSE_PORT}")
-    print(
-        "This server is for MCP clients only and cannot be accessed directly in a browser."
-    )
-    print("\n⚠️  Note: The access token will expire in about 1 hour.")
-    print("When it expires, restart the server to get a new token.")
+    print(f"Starting MCP SSE server on http://127.0.0.1:{SSE_PORT}")
 
     try:
         mcp.run(transport="sse", port=SSE_PORT)
     except KeyboardInterrupt:
-        print("\n\n✅ Server stopped by user")
+        print("\nServer stopped by user")
     except Exception as e:
-        print(f"\n❌ Server error: {e}")
+        print(f"Server error: {e}")
         sys.exit(1)

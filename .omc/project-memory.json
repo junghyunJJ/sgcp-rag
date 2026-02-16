@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1771142472678,
+  "lastScanned": 1771231150577,
   "projectRoot": "/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp",
   "techStack": {
     "languages": [
@@ -69,7 +69,7 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 3,
-      "lastAccessed": 1771142472669,
+      "lastAccessed": 1771231150569,
       "keyFiles": [
         "frontend-kr.png",
         "frontend.png",
@@ -80,26 +80,27 @@
       "path": "docker",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1771142472669,
+      "lastAccessed": 1771231150570,
       "keyFiles": []
     },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 4,
-      "lastAccessed": 1771142472669,
+      "fileCount": 9,
+      "lastAccessed": 1771231150570,
       "keyFiles": [
+        "agenticRAG.md",
+        "architecture-overview.md",
+        "document-processing-pipeline.md",
         "hybrid-search-score-fix.md",
-        "langconnect_methods_section.md",
-        "langconnect_methods_section_concise.md",
-        "session_2025-01-31_hybrid-search-fix.md"
+        "langconnect_methods_section.md"
       ]
     },
     "init-scripts": {
       "path": "init-scripts",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771142472670,
+      "lastAccessed": 1771231150570,
       "keyFiles": [
         "01-init-extensions.sql"
       ]
@@ -108,7 +109,7 @@
       "path": "langconnect",
       "purpose": null,
       "fileCount": 5,
-      "lastAccessed": 1771142472670,
+      "lastAccessed": 1771231150571,
       "keyFiles": [
         "__init__.py",
         "__main__.py",
@@ -120,21 +121,21 @@
     "mcpserver": {
       "path": "mcpserver",
       "purpose": null,
-      "fileCount": 8,
-      "lastAccessed": 1771142472670,
+      "fileCount": 6,
+      "lastAccessed": 1771231150571,
       "keyFiles": [
         "README.md",
         "__init__.py",
         "base_mcp_server.py",
-        "create_mcp_json.py",
-        "get_access_token.py"
+        "mcp_config.json",
+        "mcp_server.py"
       ]
     },
     "next-connect-ui": {
       "path": "next-connect-ui",
       "purpose": null,
       "fileCount": 16,
-      "lastAccessed": 1771142472670,
+      "lastAccessed": 1771231150571,
       "keyFiles": [
         "Dockerfile",
         "components.json",
@@ -147,7 +148,7 @@
       "path": "old",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1771142472671,
+      "lastAccessed": 1771231150571,
       "keyFiles": [
         "CLAUDE.md",
         "create_test_pdf.py",
@@ -160,7 +161,7 @@
       "path": "order",
       "purpose": null,
       "fileCount": 4,
-      "lastAccessed": 1771142472671,
+      "lastAccessed": 1771231150571,
       "keyFiles": [
         "langconnect-client.txt",
         "method_order",
@@ -172,7 +173,7 @@
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 5,
-      "lastAccessed": 1771142472671,
+      "lastAccessed": 1771231150572,
       "keyFiles": [
         "22365_3_Prompt Engineering.md",
         "22365_3_Prompt Engineering.pdf",
@@ -184,40 +185,30 @@
     "langconnect/api": {
       "path": "langconnect/api",
       "purpose": "API routes",
-      "fileCount": 3,
-      "lastAccessed": 1771142472672,
+      "fileCount": 4,
+      "lastAccessed": 1771231150572,
       "keyFiles": [
         "__init__.py",
-        "collections.py",
-        "documents.py"
+        "agentic.py",
+        "collections.py"
       ]
     },
     "langconnect/models": {
       "path": "langconnect/models",
       "purpose": "Data models",
-      "fileCount": 3,
-      "lastAccessed": 1771142472672,
+      "fileCount": 4,
+      "lastAccessed": 1771231150572,
       "keyFiles": [
         "__init__.py",
-        "collection.py",
-        "document.py"
-      ]
-    },
-    "langconnect/services": {
-      "path": "langconnect/services",
-      "purpose": "Business logic services",
-      "fileCount": 2,
-      "lastAccessed": 1771142472672,
-      "keyFiles": [
-        "__init__.py",
-        "document_processor.py"
+        "agentic.py",
+        "collection.py"
       ]
     },
     "next-connect-ui/assets": {
       "path": "next-connect-ui/assets",
       "purpose": "Static assets",
       "fileCount": 6,
-      "lastAccessed": 1771142472672,
+      "lastAccessed": 1771231150573,
       "keyFiles": [
         "api-tester.png",
         "collection.png",
@@ -227,177 +218,249 @@
   },
   "hotPaths": [
     {
-      "path": "",
+      "path": "langconnect/agent/__init__.py",
       "accessCount": 11,
-      "lastAccessed": 1771146716231,
-      "type": "directory"
+      "lastAccessed": 1771242191907,
+      "type": "file"
     },
     {
-      "path": "mcpserver/base_mcp_server.py",
-      "accessCount": 5,
-      "lastAccessed": 1771146683397,
+      "path": "langconnect/agent/state.py",
+      "accessCount": 8,
+      "lastAccessed": 1771242151407,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/graph.py",
+      "accessCount": 8,
+      "lastAccessed": 1771242151608,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/nodes.py",
+      "accessCount": 8,
+      "lastAccessed": 1771242151853,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/agentic.py",
+      "accessCount": 8,
+      "lastAccessed": 1771242170958,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/models/agentic.py",
+      "accessCount": 8,
+      "lastAccessed": 1771242171264,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/graders.py",
+      "accessCount": 7,
+      "lastAccessed": 1771242152320,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/prompts.py",
+      "accessCount": 7,
+      "lastAccessed": 1771242155149,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/config.py",
+      "accessCount": 6,
+      "lastAccessed": 1771242151155,
       "type": "file"
     },
     {
       "path": "mcpserver/mcp_server.py",
-      "accessCount": 5,
-      "lastAccessed": 1771146684123,
+      "accessCount": 6,
+      "lastAccessed": 1771242157043,
       "type": "file"
     },
     {
-      "path": "langconnect/database/collections.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146681383,
+      "path": "tests/unit_tests/test_agentic_search.py",
+      "accessCount": 6,
+      "lastAccessed": 1771242166466,
       "type": "file"
-    },
-    {
-      "path": "langconnect/api/documents.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146681787,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/config.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146682901,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/models/document.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146698725,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/database/connection.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146700308,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/services/document_processor.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146707317,
-      "type": "file"
-    },
-    {
-      "path": "langconnect",
-      "accessCount": 4,
-      "lastAccessed": 1771146715073,
-      "type": "directory"
     },
     {
       "path": "langconnect/server.py",
-      "accessCount": 4,
-      "lastAccessed": 1771146941661,
+      "accessCount": 6,
+      "lastAccessed": 1771242176139,
       "type": "file"
     },
     {
-      "path": "next-connect-ui/src",
-      "accessCount": 3,
-      "lastAccessed": 1771143421322,
-      "type": "directory"
-    },
-    {
-      "path": "docs/vector-search-pipeline.md",
-      "accessCount": 3,
-      "lastAccessed": 1771144186879,
+      "path": "docs/agenticRAG.md",
+      "accessCount": 5,
+      "lastAccessed": 1771242155502,
       "type": "file"
     },
     {
       "path": "mcpserver/mcp_sse_server.py",
-      "accessCount": 3,
-      "lastAccessed": 1771146701519,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/api/collections.py",
-      "accessCount": 3,
-      "lastAccessed": 1771146705870,
+      "accessCount": 5,
+      "lastAccessed": 1771242157123,
       "type": "file"
     },
     {
       "path": "langconnect/api/__init__.py",
-      "accessCount": 3,
-      "lastAccessed": 1771146942292,
+      "accessCount": 5,
+      "lastAccessed": 1771242183539,
       "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/test_agent_config.py",
+      "accessCount": 4,
+      "lastAccessed": 1771242166739,
+      "type": "file"
+    },
+    {
+      "path": "Makefile",
+      "accessCount": 3,
+      "lastAccessed": 1771232416972,
+      "type": "file"
+    },
+    {
+      "path": "docs/plan_agenticRAG.md",
+      "accessCount": 3,
+      "lastAccessed": 1771234222884,
+      "type": "file"
+    },
+    {
+      "path": "docs/agenticRAG_reference.md",
+      "accessCount": 3,
+      "lastAccessed": 1771234716246,
+      "type": "file"
+    },
+    {
+      "path": "tests/conftest.py",
+      "accessCount": 3,
+      "lastAccessed": 1771237613430,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 3,
+      "lastAccessed": 1771242153999,
+      "type": "directory"
+    },
+    {
+      "path": "docs/agenticRAG_update.md",
+      "accessCount": 3,
+      "lastAccessed": 1771242156069,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_mcp_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1771242162257,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver/base_mcp_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1771242185810,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver",
+      "accessCount": 2,
+      "lastAccessed": 1771234230941,
+      "type": "directory"
     },
     {
       "path": "pyproject.toml",
-      "accessCount": 3,
-      "lastAccessed": 1771146943254,
-      "type": "file"
-    },
-    {
-      "path": "docs/architecture-overview.md",
       "accessCount": 2,
-      "lastAccessed": 1771143808213,
-      "type": "file"
-    },
-    {
-      "path": "docs/document-processing-pipeline.md",
-      "accessCount": 2,
-      "lastAccessed": 1771143808820,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/models/collection.py",
-      "accessCount": 2,
-      "lastAccessed": 1771146699276,
+      "lastAccessed": 1771237608610,
       "type": "file"
     },
     {
       "path": "langconnect/models/__init__.py",
       "accessCount": 2,
-      "lastAccessed": 1771146942823,
+      "lastAccessed": 1771242147101,
       "type": "file"
     },
     {
-      "path": "langconnect/parsers/pymupdf_parser.py",
-      "accessCount": 1,
-      "lastAccessed": 1771143368553,
-      "type": "file"
+      "path": "next-connect-ui/src",
+      "accessCount": 2,
+      "lastAccessed": 1771242157752,
+      "type": "directory"
     },
     {
       "path": "docker-compose.yml",
       "accessCount": 1,
-      "lastAccessed": 1771143396073,
-      "type": "file"
-    },
-    {
-      "path": "init-scripts/01-init-extensions.sql",
-      "accessCount": 1,
-      "lastAccessed": 1771143410632,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/__init__.py",
-      "accessCount": 1,
-      "lastAccessed": 1771146259911,
-      "type": "file"
-    },
-    {
-      "path": "tests/unit_tests/test_documents_api.py",
-      "accessCount": 1,
-      "lastAccessed": 1771146706662,
+      "lastAccessed": 1771231402822,
       "type": "file"
     },
     {
       "path": ".env.example",
       "accessCount": 1,
-      "lastAccessed": 1771146722047,
+      "lastAccessed": 1771231405191,
       "type": "file"
     },
     {
-      "path": "tests/unit_tests/fixtures.py",
+      "path": "mcpserver/mcp_config.json",
       "accessCount": 1,
-      "lastAccessed": 1771146722716,
+      "lastAccessed": 1771231415922,
       "type": "file"
     },
     {
-      "path": "tests/conftest.py",
+      "path": "mcpserver/README.md",
       "accessCount": 1,
-      "lastAccessed": 1771146723176,
+      "lastAccessed": 1771231416481,
+      "type": "file"
+    },
+    {
+      "path": "install.sh",
+      "accessCount": 1,
+      "lastAccessed": 1771231417054,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/lib/api.ts",
+      "accessCount": 1,
+      "lastAccessed": 1771242157710,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/types/search.ts",
+      "accessCount": 1,
+      "lastAccessed": 1771242163855,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/app/api/collections/[id]/documents/search/route.ts",
+      "accessCount": 1,
+      "lastAccessed": 1771242164248,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/app/(protected)/search/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1771242164579,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/lib/axios.ts",
+      "accessCount": 1,
+      "lastAccessed": 1771242164837,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/app/api/collections/[id]/documents/route.ts",
+      "accessCount": 1,
+      "lastAccessed": 1771242172235,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/app/(protected)/api-tester/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1771242176020,
+      "type": "file"
+    },
+    {
+      "path": "next-connect-ui/src/components/layout/app-sidebar.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1771242179744,
       "type": "file"
     }
   ],

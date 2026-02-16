@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from langconnect.api import collections_router, documents_router
+from langconnect.api import agentic_router, collections_router, documents_router
 from langconnect.config import ALLOWED_ORIGINS
 from langconnect.database.collections import CollectionsManager
 
@@ -47,6 +47,7 @@ APP.add_middleware(
 )
 
 # Include API routers
+APP.include_router(agentic_router)
 APP.include_router(collections_router)
 APP.include_router(documents_router)
 

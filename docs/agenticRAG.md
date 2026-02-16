@@ -1,241 +1,317 @@
-# Agentic RAG 구현 계획
+# Agentic RAG 아키텍처
 
-## Context
+## 전체 시스템 아키텍처
 
-LangConnect는 현재 **Advanced RAG** 시스템입니다 (Hybrid Search + Multi-Query). 이를 **Agentic RAG**로 진화시켜, 검색 결과를 자동으로 평가하고, 쿼리를 재작성하며, 답변 품질을 검증하는 에이전트 루프를 추가합니다.
-
-참고 소스: `langchain-kr/17-LangGraph/02-Structures/` 노트북들의 Agentic RAG, Adaptive RAG, Self-RAG 패턴을 기반으로 설계했습니다.
-
-**핵심 원칙**: 기존 검색 기능은 그대로 유지. Agentic 기능은 **추가(additive)** 방식으로 구현.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        진입 경로 (2개)                           │
+│                                                                 │
+│  MCP Tool                          REST API                     │
+│  agentic_search()                  POST /collections/{id}/      │
+│  (mcp_server.py)                   agentic-search               │
+│       │                            (api/agentic.py)             │
+│       │         ┌──────────────┐         │                      │
+│       └────────►│ run_agentic_ │◄────────┘                      │
+│                 │ search()     │                                 │
+│                 │ __init__.py  │                                 │
+│                 └──────┬───────┘                                 │
+│                        │                                        │
+│              ┌─────────▼──────────┐                             │
+│              │  LangGraph         │                             │
+│              │  StateGraph        │                             │
+│              │  (graph.py)        │                             │
+│              └─────────┬──────────┘                             │
+│                        │                                        │
+│         ┌──────────────┼──────────────────┐                     │
+│         ▼              ▼                  ▼                     │
+│    ┌─────────┐   ┌──────────┐     ┌────────────┐              │
+│    │ nodes.py│   │graders.py│     │ prompts.py │              │
+│    │ (5노드) │   │ (3평가기)│     │ (5프롬프트)│              │
+│    └────┬────┘   └──────────┘     └────────────┘              │
+│         │                                                      │
+│         ▼                                                      │
+│    ┌──────────────────────┐                                    │
+│    │ Collection.search()  │  ← 기존 코드 재사용 (검색 로직 0% 중복) │
+│    │ (database/           │                                    │
+│    │  collections.py)     │                                    │
+│    └──────────┬───────────┘                                    │
+│               ▼                                                │
+│    ┌──────────────────┐                                        │
+│    │  PostgreSQL +    │                                        │
+│    │  pgvector        │                                        │
+│    └──────────────────┘                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 아키텍처 개요
+## 1. 데이터 흐름: AgentState
+
+모든 노드가 읽고 쓰는 공유 상태입니다 (`state.py`).
 
 ```
-START → retrieve → grade_documents → [relevant?]
-                                        ├─ YES → generate → grade_generation → [passed?]
-                                        │                                        ├─ YES → END
-                                        │                                        └─ NO → rewrite_query ─┐
-                                        └─ NO → rewrite_query ──────────────────────────────────────────┘
-                                                      │
-                                                      └──→ retrieve (loop, max 3회)
+AgentState (TypedDict)
+├── question          ← 현재 질문 (rewrite 시 갱신됨)
+├── collection_id     ← 검색 대상 컬렉션 UUID
+├── user_id           ← 접근 제어 (nullable)
+├── search_type       ← "semantic" | "keyword" | "hybrid"
+├── search_limit      ← 한 번에 가져올 문서 수 (기본 5)
+├── search_filter     ← 메타데이터 필터 (nullable)
+├── documents         ← retrieve 결과 (raw 검색 결과)
+├── relevant_documents← grade 통과한 문서만
+├── generation        ← LLM이 생성한 답변
+├── query_rewrites    ← 재작성 이력 ["v1", "v2", ...]
+├── rewrite_count     ← 현재 루프 카운터
+├── max_rewrites      ← 최대 재시도 (기본 3, 루프 방지)
+├── steps             ← 실행 추적 로그 ["retrieve: found 5 documents", ...]
+└── error             ← 에러 메시지 (nullable)
 ```
 
-기존 `Collection.search()`를 `retrieve` 노드에서 직접 호출 — 검색 로직 중복 없음.
+**LangGraph의 State 업데이트 방식**: 각 노드는 전체 state를 반환하지 않고, **변경된 키만 dict로 반환**합니다. 예를 들어 `retrieve`는 `{"documents": [...], "steps": [...]}` 만 반환하면 LangGraph가 기존 state에 merge합니다. 이게 `TypedDict`를 사용하는 이유 -- Pydantic `BaseModel`이면 전체 객체를 매번 재생성해야 합니다.
 
 ---
 
-## 새 모듈 구조
+## 2. 그래프 실행 흐름 (graph.py)
 
 ```
-langconnect/
-  agent/                     # NEW PACKAGE
-    __init__.py              # run_agentic_search() 메인 진입점
-    config.py                # LLM 설정 (provider/model 선택)
-    state.py                 # AgentState TypedDict
-    prompts.py               # 프롬프트 템플릿 5종
-    graders.py               # 문서/환각/답변 평가기 (structured output)
-    nodes.py                 # 그래프 노드 함수 5개
-    graph.py                 # StateGraph 구성 + 컴파일
-  api/
-    agentic.py               # NEW: /collections/{id}/agentic-search 엔드포인트
-  models/
-    agentic.py               # NEW: AgenticSearchQuery, AgenticSearchResult
+        ┌─────────┐
+        │  START  │
+        └────┬────┘
+             ▼
+     ┌───────────────┐
+     │   retrieve    │  Collection.search() 호출
+     │   (nodes.py)  │  → documents에 결과 저장
+     └───────┬───────┘
+             ▼
+     ┌───────────────┐
+     │grade_documents│  각 문서를 LLM으로 평가
+     │   (nodes.py)  │  → relevant_documents에 통과분만
+     └───────┬───────┘
+             │
+      ┌──────┴──────┐  _route_after_grading()
+      │             │
+ relevant > 0   relevant == 0
+      │             │
+      ▼             ▼
+┌──────────┐  ┌─────────────┐
+│ generate │  │rewrite_query│  질문 재작성
+│(nodes.py)│  │ (nodes.py)  │  rewrite_count++
+└────┬─────┘  └──────┬──────┘
+     │               │
+     ▼               └──► retrieve로 돌아감 (루프)
+┌────────────────┐
+│grade_generation│  2단계 검증:
+│  (nodes.py)    │  ① 환각 체크
+└────┬───────────┘  ② 답변 품질 체크
+     │
+  ┌──┴──┐  _route_after_generation_check()
+  │     │
+PASSED  FAILED
+  │     │
+  ▼     ▼
+┌────┐ ┌─────────────┐
+│END │ │rewrite_query│ → retrieve로 다시 루프
+└────┘ └─────────────┘
+
+⚠️ 루프 방지: rewrite_count >= max_rewrites면
+   → 강제 generate 또는 END
 ```
 
 ---
 
-## Phase 1: Core Agent 모듈 (7 파일 생성)
+## 3. 각 노드의 역할 (nodes.py)
 
-### 1.1 `langconnect/agent/state.py` — 상태 정의
+### 3.1 `retrieve(state)` -- LLM 불필요
 
 ```python
-class AgentState(TypedDict):
-    question: str                          # 현재 질문 (재작성 시 갱신)
-    collection_id: str                     # 검색 대상 컬렉션
-    user_id: str | None                    # 접근 제어
-    search_type: Literal["semantic", "keyword", "hybrid"]
-    search_limit: int
-    search_filter: dict[str, Any] | None
-    documents: list[dict[str, Any]]        # 검색 결과
-    relevant_documents: list[dict[str, Any]]  # 관련성 통과 문서
-    generation: str                        # 생성된 답변
-    query_rewrites: list[str]              # 재작성 이력
-    rewrite_count: int                     # 루프 카운터
-    max_rewrites: int                      # 최대 재시도 (기본 3)
-    steps: list[str]                       # 실행 추적
-    error: str | None
+# 핵심: 기존 Collection.search()를 그대로 호출
+collection = Collection(collection_id=..., user_id=...)
+documents = await collection.search(
+    question,
+    limit=state["search_limit"],      # 기본 5
+    search_type=state["search_type"],  # hybrid 추천
+    filter=state["search_filter"],
+)
 ```
 
-### 1.2 `langconnect/agent/config.py` — LLM 설정
+기존 검색 엔진(semantic/keyword/hybrid)을 100% 재사용합니다.
 
-- 환경변수: `AGENT_LLM_PROVIDER` (openai/google), `AGENT_LLM_MODEL` (gpt-5-nano), `AGENT_LLM_TEMPERATURE` (0)
-- `get_agent_llm(provider, model, temperature)` → `BaseChatModel`
-- OpenAI (`ChatOpenAI`) 및 Google (`ChatGoogleGenerativeAI`) 지원
-- 요청별 오버라이드 가능 (API 파라미터로)
+### 3.2 `grade_documents(state, llm)` -- 문서 필터링
 
-### 1.3 `langconnect/agent/prompts.py` — 프롬프트 5종
+```python
+grader = get_document_grader(llm)  # llm.with_structured_output(GradeDocumentRelevance)
+for doc in documents:
+    result = await grader.ainvoke({"document": doc.content, "question": question})
+    if result.binary_score == "yes":
+        relevant_docs.append(doc)
+```
 
-| 프롬프트 | 용도 |
-|---------|------|
-| `DOCUMENT_GRADER_PROMPT` | 검색 문서의 질문 관련성 평가 (yes/no) |
-| `QUERY_REWRITER_PROMPT` | 벡터 검색 최적화를 위한 질문 재작성 |
-| `ANSWER_GENERATOR_PROMPT` | 관련 문서 기반 답변 생성 |
-| `HALLUCINATION_GRADER_PROMPT` | 생성 답변의 근거성 검증 |
-| `ANSWER_GRADER_PROMPT` | 답변이 질문을 해결하는지 평가 |
+각 문서를 개별적으로 LLM에게 "이 문서가 질문과 관련 있나요? yes/no"를 물어봅니다.
 
-참고 노트북 패턴 그대로 적용 (Pydantic structured output).
+### 3.3 `generate(state, llm)` -- 답변 생성
 
-### 1.4 `langconnect/agent/graders.py` — 평가기
+```python
+context = "\n\n---\n\n".join(doc.page_content for doc in relevant_docs)
+# ANSWER_GENERATOR_PROMPT에 question + context를 넣어 답변 생성
+result = await chain.ainvoke({"question": question, "context": context})
+```
 
-- `GradeDocumentRelevance(BaseModel)` — binary_score: yes/no
-- `GradeHallucination(BaseModel)` — binary_score: yes/no
-- `GradeAnswer(BaseModel)` — binary_score: yes/no
-- 각각 `llm.with_structured_output()` + 프롬프트 체인
+### 3.4 `rewrite_query(state, llm)` -- 쿼리 재작성
 
-### 1.5 `langconnect/agent/nodes.py` — 5개 노드 함수
+```python
+# QUERY_REWRITER_PROMPT로 벡터 검색에 최적화된 질문으로 변환
+result = await chain.ainvoke({"question": question})
+# "What is LangGraph?" → "LangGraph framework stateful agent architecture"
+```
 
-| 노드 | 핵심 로직 |
-|------|-----------|
-| `retrieve(state)` | **기존 `Collection.search()` 직접 호출** — 검색 로직 재구현 없음 |
-| `grade_documents(state, llm)` | 각 문서를 LLM으로 관련성 평가, 관련 문서만 필터링 |
-| `generate(state, llm)` | 관련 문서로 컨텍스트 구성 → LLM 답변 생성 |
-| `rewrite_query(state, llm)` | LLM으로 질문 재작성, rewrite_count 증가 |
-| `grade_generation(state, llm)` | 2단계 검증: (1) 환각 체크, (2) 답변 품질 체크 |
+### 3.5 `grade_generation(state, llm)` -- 2단계 검증
 
-### 1.6 `langconnect/agent/graph.py` — StateGraph
+```
+Stage 1: 환각 체크 (Hallucination Grading)
+  "이 답변이 제공된 문서에 근거하고 있나요?" → yes/no
+  실패 → rewrite_query로 돌아감
 
-- `build_agentic_rag_graph(llm, checkpointer)` → 컴파일된 그래프
-- 조건부 엣지 2개:
-  - `grade_documents` 후: 관련 문서 있으면 → `generate`, 없으면 → `rewrite_query`
-  - `grade_generation` 후: 통과 → `END`, 실패 + 재시도 가능 → `rewrite_query`
-- 루프 방지: `rewrite_count >= max_rewrites`이면 강제 `generate` 또는 `END`
+Stage 2: 답변 품질 체크 (Answer Grading)
+  "이 답변이 원래 질문을 해결하나요?" → yes/no
+  실패 → rewrite_query로 돌아감
 
-### 1.7 `langconnect/agent/__init__.py` — 메인 진입점
-
-- `run_agentic_search(question, collection_id, ...)` → `dict`
-- API와 MCP 모두 이 함수를 호출
-- 예외 처리 포함 (실패 시 error dict 반환)
+  둘 다 통과 → END
+```
 
 ---
 
-## Phase 2: API 통합 (3 파일 생성 + 2 파일 수정)
+## 4. LLM 바인딩 패턴 (graph.py)
 
-### 2.1 `langconnect/models/agentic.py` — 요청/응답 모델
+LLM 인스턴스를 graph state에 넣으면 직렬화 문제가 생깁니다. 대신 `functools.partial`로 노드 함수에 LLM을 바인딩합니다. `retrieve`는 LLM이 필요 없으므로 partial 없이 직접 등록합니다. 이 패턴 덕분에 테스트에서 mock LLM을 주입하기도 쉽습니다.
 
-- `AgenticSearchQuery`: question, search_type, search_limit, filter, max_rewrites, llm_provider, llm_model, llm_temperature
-- `AgenticSearchResult`: generation, relevant_documents, steps, query_rewrites, rewrite_count, error
+```python
+graph.add_node("retrieve", retrieve)                              # LLM 불필요
+graph.add_node("grade_documents", partial(grade_documents, llm=llm))
+graph.add_node("generate", partial(generate, llm=llm))
+graph.add_node("rewrite_query", partial(rewrite_query, llm=llm))
+graph.add_node("grade_generation", partial(grade_generation, llm=llm))
+```
 
-### 2.2 `langconnect/api/agentic.py` — 새 엔드포인트
+---
+
+## 5. Graders: Structured Output (graders.py)
+
+```python
+class GradeDocumentRelevance(BaseModel):
+    binary_score: str  # "yes" | "no"
+
+def get_document_grader(llm):
+    structured_llm = llm.with_structured_output(GradeDocumentRelevance)
+    prompt = ChatPromptTemplate.from_messages([...])
+    return prompt | structured_llm  # LCEL chain
+```
+
+`with_structured_output()`은 LLM이 반드시 Pydantic 모델 형태로 응답하도록 강제합니다. JSON 파싱 에러 없이 `result.binary_score`로 바로 접근 가능합니다.
+
+---
+
+## 6. 외부 접근 경로 2개
+
+### REST API (`api/agentic.py`)
 
 ```
 POST /collections/{collection_id}/agentic-search
+Body: { "question": "...", "search_type": "hybrid", "max_rewrites": 3 }
+Response: { "generation": "...", "relevant_documents": [...], "steps": [...] }
 ```
-- 기존 `/documents/search`는 그대로 유지
-- `run_agentic_search()` 호출
 
-### 2.3 기존 파일 수정 (최소 변경)
+### MCP Tool (`mcp_server.py`, `mcp_sse_server.py`)
 
-**`langconnect/api/__init__.py`** — 1줄 추가:
 ```python
-from langconnect.api.agentic import router as agentic_router
+@mcp.tool
+async def agentic_search(collection_id, question, ...):
+    result = await client.request("POST", f"/collections/{id}/agentic-search", ...)
+    return json.dumps({"answer": ..., "sources": ..., "steps": ...})
 ```
 
-**`langconnect/models/__init__.py`** — export 추가
+MCP는 API를 HTTP로 호출합니다 (직접 Python import 아님).
 
-**`langconnect/server.py`** — 1줄 추가:
-```python
-APP.include_router(agentic_router)
+---
+
+## 7. 기존 시스템과의 관계
+
+```
+기존 (유지)                    신규 (추가)
+──────────                    ──────────
+/documents/search             /agentic-search
+  └─ Collection.search()        └─ run_agentic_search()
+                                     └─ StateGraph
+                                          ├─ retrieve → Collection.search() (재사용!)
+                                          ├─ grade_documents (LLM)
+                                          ├─ generate (LLM)
+                                          ├─ rewrite_query (LLM)
+                                          └─ grade_generation (LLM)
+
+search_documents (MCP)        agentic_search (MCP)
+multi_query (MCP)               └─ API 호출 → 위 그래프 실행
+```
+
+기존 `search_documents`는 raw 문서 청크를 반환하고, `agentic_search`는 **완성된 답변 + 소스 + 실행 추적**을 반환합니다.
+
+---
+
+## 8. 설정 체계 (config.py)
+
+```
+우선순위: API 파라미터 > 환경변수 > 기본값
+
+AGENT_LLM_PROVIDER=openai     →  llm_provider 파라미터로 오버라이드 가능
+AGENT_LLM_MODEL=gpt-4.1-nano  →  llm_model 파라미터로 오버라이드 가능
+AGENT_LLM_TEMPERATURE=0       →  llm_temperature 파라미터로 오버라이드 가능
+AGENT_MAX_REWRITES=3           →  max_rewrites 파라미터로 오버라이드 가능
+```
+
+요청별로 다른 LLM을 사용할 수 있습니다:
+
+```json
+{
+  "question": "...",
+  "llm_provider": "google",
+  "llm_model": "gemini-2.0-flash",
+  "llm_temperature": 0.3
+}
 ```
 
 ---
 
-## Phase 3: MCP 통합 (2 파일 수정)
-
-### 3.1 `mcpserver/mcp_server.py` + `mcp_sse_server.py`
-
-새 MCP 도구 `agentic_search` 추가:
-- `search_documents`와 동일한 패턴으로 구현
-- API 서버의 `/agentic-search` 엔드포인트 호출
-- 반환: answer, sources, steps, rewrites
-
-### 3.2 MCP instructions 및 rag-prompt 리소스 업데이트
-
-기존 4단계 워크플로우에 `agentic_search` 도구 설명 추가
-
----
-
-## Phase 4: 설정 및 의존성
-
-### 4.1 `pyproject.toml` — 의존성 추가
-
-```toml
-"langgraph>=0.2.0",  # 현재 langgraph-sdk만 있음, langgraph 자체 추가
-```
-
-### 4.2 `.env.example` — 환경변수 추가
+## 9. 모듈 구조
 
 ```
-AGENT_LLM_PROVIDER=openai
-AGENT_LLM_MODEL=gpt-5-nano
-AGENT_LLM_TEMPERATURE=0
-AGENT_MAX_REWRITES=3
+langconnect/
+  agent/                     # Agentic RAG 패키지
+    __init__.py              # run_agentic_search() 메인 진입점 (97줄)
+    config.py                # LLM 설정 - OpenAI/Google 지원 (48줄)
+    state.py                 # AgentState TypedDict (26줄)
+    prompts.py               # 프롬프트 템플릿 5종 (65줄)
+    graders.py               # 문서/환각/답변 평가기 (69줄)
+    nodes.py                 # 그래프 노드 함수 5개 (175줄)
+    graph.py                 # StateGraph 구성 + 컴파일 (100줄)
+  api/
+    agentic.py               # POST /agentic-search 엔드포인트 (48줄)
+  models/
+    agentic.py               # AgenticSearchQuery, AgenticSearchResult (37줄)
 ```
 
 ---
 
-## Phase 5: 테스트
+## 10. 테스트 커버리지
 
-### 5.1 `tests/unit_tests/test_agentic_search.py`
+| 카테고리 | 테스트 수 | 내용 |
+|----------|-----------|------|
+| Config | 6 | OpenAI/Google 프로바이더, 환경변수, 파라미터 오버라이드 |
+| State | 1 | AgentState 필드 검증 |
+| Node 단위 | 8 | retrieve, grade_documents, generate, rewrite_query, grade_generation |
+| Graph 라우팅 | 6 | 조건부 엣지 모든 경로 (relevant/no-relevant, pass/fail, max_rewrites) |
+| Entry Point | 1 | run_agentic_search 에러 처리 |
+| E2E | 2 | Happy path + Rewrite loop |
+| **총계** | **24** | **전부 통과** |
 
-- 상태 초기화 테스트
-- 각 노드 단위 테스트 (LLM 목킹)
-- 루프 방지 테스트 (max_rewrites=0)
-- 전체 그래프 E2E 테스트 (Collection.search + LLM 목킹)
-- API 엔드포인트 테스트
-- 에러 처리 테스트
-
-### 5.2 `tests/unit_tests/test_agent_config.py`
-
-- OpenAI/Google LLM 생성 테스트
-- 환경변수 설정 테스트
-
----
-
-## 수정 대상 파일 요약
-
-| 파일 | 작업 | 변경 규모 |
-|------|------|-----------|
-| `langconnect/agent/__init__.py` | 생성 | ~80줄 |
-| `langconnect/agent/config.py` | 생성 | ~50줄 |
-| `langconnect/agent/state.py` | 생성 | ~30줄 |
-| `langconnect/agent/prompts.py` | 생성 | ~60줄 |
-| `langconnect/agent/graders.py` | 생성 | ~50줄 |
-| `langconnect/agent/nodes.py` | 생성 | ~120줄 |
-| `langconnect/agent/graph.py` | 생성 | ~80줄 |
-| `langconnect/models/agentic.py` | 생성 | ~40줄 |
-| `langconnect/api/agentic.py` | 생성 | ~50줄 |
-| `langconnect/api/__init__.py` | 수정 | +2줄 |
-| `langconnect/models/__init__.py` | 수정 | +5줄 |
-| `langconnect/server.py` | 수정 | +2줄 |
-| `mcpserver/mcp_server.py` | 수정 | +60줄 |
-| `mcpserver/mcp_sse_server.py` | 수정 | +60줄 |
-| `pyproject.toml` | 수정 | +1줄 |
-| `.env.example` | 수정 | +4줄 |
-| `tests/unit_tests/test_agentic_search.py` | 생성 | ~150줄 |
-| `tests/unit_tests/test_agent_config.py` | 생성 | ~50줄 |
-
-**총 18개 파일 (11 생성 + 7 수정), 약 900줄**
-
----
-
-## 검증 계획
-
-1. **단위 테스트**: `uv run pytest tests/unit_tests/test_agentic_search.py -v`
-2. **API 테스트**: `curl -X POST http://localhost:8888/collections/{id}/agentic-search -d '{"question": "테스트 질문"}'`
-3. **MCP 테스트**: `npx @modelcontextprotocol/inspector`로 `agentic_search` 도구 호출
-4. **E2E 테스트**: Docker 환경에서 `make up` 후 프론트엔드 → API → 에이전트 → DB 전체 흐름 확인
+테스트 실행: `uv run pytest --confcutdir=tests/unit_tests tests/unit_tests/test_agent_config.py tests/unit_tests/test_agentic_search.py -v`
 
 ---
 

@@ -1,3 +1,4 @@
+from langconnect.models.agentic import AgenticSearchQuery, AgenticSearchResult
 from langconnect.models.collection import (
     CollectionCreate,
     CollectionResponse,
@@ -13,6 +14,8 @@ from langconnect.models.document import (
 )
 
 __all__ = [
+    "AgenticSearchQuery",
+    "AgenticSearchResult",
     "CollectionCreate",
     "CollectionResponse",
     "CollectionUpdate",

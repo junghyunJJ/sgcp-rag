@@ -53,7 +53,6 @@ fi
 
 echo ""
 echo -e "${GREEN}🚀 Starting MCP SSE Server...${NC}"
-echo -e "${YELLOW}Note: You may need to authenticate with your Supabase credentials.${NC}"
 echo ""
 
 # Run the MCP SSE server

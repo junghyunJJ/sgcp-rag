@@ -15,9 +15,9 @@ up:
 	@docker-compose up -d
 	@echo "✅ Server started successfully!"
 	@echo "📌 Access points:"
-	@echo "   - API Server: http://localhost:8080"
-	@echo "   - API Docs: http://localhost:8080/docs"
-	@echo "   - Next.js UI: http://localhost:3000"
+	@echo "   - API Server: http://localhost:8888"
+	@echo "   - API Docs: http://localhost:8888/docs"
+	@echo "   - Next.js UI: http://localhost:3005"
 	@echo "   - PostgreSQL: localhost:5432"
 
 down:

@@ -6,8 +6,7 @@
         "/Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/mcpserver/mcp_server.py"
       ],
       "env": {
-        "API_BASE_URL": "http://localhost:8888",
-        "SUPABASE_JWT_SECRET": ""
+        "API_BASE_URL": "http://localhost:8888"
       }
     }
   }

@@ -22,14 +22,13 @@ load_dotenv()
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 # Create FastMCP server
 mcp = FastMCP(
     name="langconnect-rag-mcp",
-    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
+    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call agentic_search(collection_id, question) for AI-powered question answering with automatic query rewriting and answer validation. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
 )
 
 
@@ -38,10 +37,16 @@ mcp = FastMCP(
 def get_instructions() -> str:
     """Provides instructions on how to use the LangConnect RAG MCP server."""
     return """
-Follow the guidelines step-by-step to find the answer.
-1. Use `list_collections` to list up collections and find right **Collection ID** for user's request.
-2. Use `multi_query` to generate at least 3 sub-questions which are related to original user's request.
-3. Search all queries generated from previous step(`multi_query`) and find useful documents from collection.
+Two approaches for answering questions from documents:
+
+**Option A: Agentic Search (Recommended for Q&A)**
+1. Use `list_collections` to find the right **Collection ID**.
+2. Use `agentic_search(collection_id, question)` — it automatically retrieves, evaluates, rewrites queries, and validates the answer.
+
+**Option B: Manual Multi-Query Search (For detailed control)**
+1. Use `list_collections` to find the right **Collection ID**.
+2. Use `multi_query` to generate at least 3 sub-questions.
+3. Search all queries with `search_documents` and find useful documents.
 4. Use searched documents to answer the question."""
 
 
@@ -60,8 +65,14 @@ You must use search tool to answer the question.
 - Search Limit: 5(default)
 
 #Search Guidelines:
-Follow the guidelines step-by-step to find the answer.
-1. Use `list_collections` to list up collections and find right **Collection ID** for user's request.
+Two approaches are available:
+
+**Option A: Agentic Search (Recommended for Q&A)**
+1. Use `list_collections` to find the right **Collection ID** for user's request.
+2. Use `agentic_search(collection_id, question)` — it automatically retrieves relevant documents, evaluates their quality, rewrites queries if needed, and validates the generated answer.
+
+**Option B: Manual Multi-Query Search (For detailed control)**
+1. Use `list_collections` to find the right **Collection ID** for user's request.
 2. Use `multi_query` to generate at least 3 sub-questions which are related to original user's request.
 3. Search all queries generated from previous step(`multi_query`) and find useful documents from collection.
 4. Use searched documents to answer the question.
@@ -100,14 +111,12 @@ class LineListOutputParser(BaseOutputParser[list[str]]):
 
 # HTTP client
 class LangConnectClient:
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        if token:
-            self.headers["Authorization"] = f"Bearer {token}"
 
     async def request(self, method: str, endpoint: str, **kwargs):
         async with httpx.AsyncClient() as client:
@@ -124,7 +133,7 @@ class LangConnectClient:
 
 
 # Initialize client
-client = LangConnectClient(API_BASE_URL, SUPABASE_JWT_SECRET)
+client = LangConnectClient(API_BASE_URL)
 
 
 # Helper function for file path validation
@@ -678,6 +687,80 @@ async def delete_document(collection_id: str, document_id: str) -> str:
 
 
 @mcp.tool
+async def agentic_search(
+    collection_id: str,
+    question: str,
+    search_type: str = "hybrid",
+    search_limit: int = 5,
+    max_rewrites: int = 3,
+    filter_json: Optional[str] = None,
+) -> str:
+    """Run an agentic RAG search that automatically evaluates, rewrites queries, and validates answers.
+
+    Unlike search_documents which returns raw document chunks, this function uses an AI agent
+    that retrieves documents, grades their relevance, generates an answer, and validates it.
+    If the retrieval or answer quality is poor, the agent automatically rewrites the query
+    and retries (up to max_rewrites times). This is the recommended search method for
+    question-answering tasks where you need a direct answer rather than raw documents.
+
+    Args:
+        collection_id: The unique identifier of the collection to search in.
+        question: The question to answer. Should be a clear, well-formed question.
+        search_type: Search algorithm: "semantic", "keyword", or "hybrid" (default).
+        search_limit: Maximum documents per retrieval attempt. Default is 5.
+        max_rewrites: Maximum number of query rewrite attempts. Default is 3.
+        filter_json: Optional JSON string with metadata filters.
+                    Example: '{"source": "paper.pdf"}'
+
+    Returns:
+        str: JSON string with the answer, source documents, execution trace, and any rewrites.
+             Format: {"answer": "...", "sources": [...], "steps": [...], "rewrites": [...]}
+    """
+    search_data = {
+        "question": question,
+        "search_type": search_type,
+        "search_limit": search_limit,
+        "max_rewrites": max_rewrites,
+    }
+
+    if filter_json:
+        try:
+            search_data["filter"] = json.loads(filter_json)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in filter parameter"})
+
+    try:
+        result = await client.request(
+            "POST",
+            f"/collections/{collection_id}/agentic-search",
+            json=search_data,
+        )
+
+        output = {
+            "answer": result.get("generation", ""),
+            "sources": [
+                {
+                    "content": doc.get("page_content", "")[:300],
+                    "metadata": doc.get("metadata", {}),
+                    "score": doc.get("score", 0),
+                }
+                for doc in result.get("relevant_documents", [])
+            ],
+            "steps": result.get("steps", []),
+            "rewrites": result.get("query_rewrites", []),
+            "rewrite_count": result.get("rewrite_count", 0),
+        }
+
+        if result.get("error"):
+            output["error"] = result["error"]
+
+        return json.dumps(output, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": f"Agentic search failed: {e!s}"})
+
+
+@mcp.tool
 async def get_health_status() -> str:
     """Check API health status.
 
@@ -693,7 +776,7 @@ async def get_health_status() -> str:
              The auth status shows "✓" if authentication is configured, "✗" if not.
     """
     result = await client.request("GET", "/health")
-    return f"Status: {result.get('status', 'Unknown')}\nAPI: {API_BASE_URL}\nAuth: {'✓' if SUPABASE_JWT_SECRET else '✗'}"
+    return f"Status: {result.get('status', 'Unknown')}\nAPI: {API_BASE_URL}"
 
 
 @mcp.tool
@@ -759,36 +842,6 @@ Original question: {question}""",
 
 def main():
     """Entry point for the MCP server"""
-    import sys
-
-    # print("Starting LangConnect MCP server...", file=sys.stderr)
-    # print(f"API_BASE_URL: {API_BASE_URL}", file=sys.stderr)
-    # print(
-    #     f"SUPABASE_JWT_SECRET configured: {'Yes' if SUPABASE_JWT_SECRET else 'No'}",
-    #     file=sys.stderr,
-    # )
-    # print(
-    #     f"OPENAI_API_KEY configured: {'Yes' if OPENAI_API_KEY else 'No'}",
-    #     file=sys.stderr,
-    # )
-
-    # if not SUPABASE_JWT_SECRET:
-    #     print(
-    #         "WARNING: No SUPABASE_JWT_SECRET provided. API calls will likely fail.",
-    #         file=sys.stderr,
-    #     )
-    #     print(
-    #         "Please set SUPABASE_JWT_SECRET environment variable with a valid JWT token.",
-    #         file=sys.stderr,
-    #     )
-
-    # if not OPENAI_API_KEY:
-    #     print(
-    #         "WARNING: No OPENAI_API_KEY provided. Multi-query generation will not work.",
-    #         file=sys.stderr,
-    #     )
-
-    # Run stdio mode (default for Claude Desktop)
     mcp.run()
 
 
