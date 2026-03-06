@@ -1,0 +1,12 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ralplan"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:ralplan"}
+{"t":0,"agent":"a84bcc0","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ac10e64","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abd09e3","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a84bcc0","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":48025}
+{"t":0,"agent":"abd09e3","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":47674}
+{"t":0,"agent":"ac10e64","agent_type":"Explore","event":"agent_stop","success":true}
+{"t":0,"agent":"a8fa47a","agent_type":"planner","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a79bc3f","agent_type":"architect","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a8fa47a","agent_type":"planner","event":"agent_stop","success":true,"duration_ms":121424}
+{"t":0,"agent":"a79bc3f","agent_type":"architect","event":"agent_stop","success":true,"duration_ms":266975}

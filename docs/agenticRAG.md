@@ -317,8 +317,13 @@ langconnect/
 
 ## 향후 확장 (Phase 2+)
 
-- **Adaptive Query Router**: 질문 분석 → 자동으로 semantic/keyword/hybrid 선택
-- **Web Search Fallback**: 로컬 문서에 답이 없을 때 Tavily 웹 검색
-- **Multi-Collection 검색**: 여러 컬렉션에 걸친 에이전트 검색
-- **Streaming 응답**: LangGraph 스트리밍으로 실시간 답변 생성
-- **PostgreSQL 체크포인터**: 대화 레벨 상태 영속화
+> 주 사용 패턴이 MCP(AI 어시스턴트)이므로, 외부 오케스트레이터가 이미 제공하는 기능(웹 검색, 멀티컬렉션 팬아웃, 대화 상태)은 그래프 내부에 중복 구현하지 않는다.
+
+### 구현 예정
+- **Streaming 응답** (P2): LangGraph `astream_events()` + FastAPI `StreamingResponse`로 실시간 단계 피드백. 웹 UI 사용 비중 증가 시 구현. `steps` 필드가 이미 incremental 설계됨.
+- **Heuristic Query Router** (P3): retrieve 전 ~30줄 휴리스틱으로 검색 타입 자동 선택 (인용구/엔티티→keyword, 자연어→semantic, 기본→hybrid). LLM 호출 없음.
+
+### 보류 (현재 불필요)
+- ~~Web Search Fallback~~: MCP 클라이언트가 자체 웹 검색 도구 보유. trust boundary 유지를 위해 그래프 내 미구현.
+- ~~Multi-Collection 검색~~: MCP 클라이언트가 순차 호출로 처리 가능. 필요 시 thin wrapper endpoint로 충분.
+- ~~PostgreSQL 체크포인터~~: 주 소비자(MCP)가 stateless per-query. 채팅 UI 전환 시 재검토.

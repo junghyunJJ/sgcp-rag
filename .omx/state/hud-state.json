@@ -1,0 +1,5 @@
+{
+  "last_turn_at": "2026-03-04T17:38:59.521Z",
+  "turn_count": 2,
+  "last_agent_output": "복구 작업 완료했습니다. 현재 서비스는 정상입니다.\n\n- 원인: `langconnect_mcp_postgres_data` 볼륨의 `postmaster.pid`가 손상(빈 줄만 존재"
+}

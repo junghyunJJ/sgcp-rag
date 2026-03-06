@@ -118,11 +118,11 @@ class LangConnectClient:
             "Content-Type": "application/json",
         }
 
-    async def request(self, method: str, endpoint: str, **kwargs):
+    async def request(self, method: str, endpoint: str, timeout: float = 60.0, **kwargs):
         async with httpx.AsyncClient() as client:
             url = f"{self.base_url}{endpoint}"
             response = await client.request(
-                method, url, headers=self.headers, timeout=60.0, **kwargs
+                method, url, headers=self.headers, timeout=timeout, **kwargs
             )
             response.raise_for_status()
             return (
@@ -200,9 +200,17 @@ async def search_documents(
         except json.JSONDecodeError:
             return "Error: Invalid JSON in filter parameter"
 
-    results = await client.request(
-        "POST", f"/collections/{collection_id}/documents/search", json=search_data
-    )
+    try:
+        results = await client.request(
+            "POST", f"/collections/{collection_id}/documents/search",
+            timeout=120.0, json=search_data,
+        )
+    except httpx.ReadTimeout:
+        return json.dumps({
+            "error": "Search timed out. The query may be too complex or the collection is very large. Try reducing the limit or using a simpler search type.",
+            "results": [],
+            "count": 0,
+        })
 
     if not results:
         return json.dumps({"results": [], "count": 0, "search_type": search_type})
@@ -443,16 +451,19 @@ async def add_documents(
     headers = client.headers.copy()
     headers.pop("Content-Type", None)
 
-    async with httpx.AsyncClient() as http_client:
-        response = await http_client.post(
-            f"{client.base_url}/collections/{collection_id}/documents",
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=120.0,
-        )
-        response.raise_for_status()
-        result = response.json()
+    try:
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.post(
+                f"{client.base_url}/collections/{collection_id}/documents",
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+    except httpx.ReadTimeout:
+        return "Error: Document upload timed out. The file may be too large or the server is under heavy load. Try a smaller document or increase chunk_size to reduce the number of chunks."
 
     if result.get("success"):
         chunks_created = len(result.get("added_chunk_ids", []))
@@ -644,6 +655,10 @@ async def add_documents_from_files(
             print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
             return error_msg
 
+    except httpx.ReadTimeout:
+        error_msg = "File upload timed out. The files may be too large or the server is under heavy load. Try uploading fewer files or increasing chunk_size."
+        print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
+        return error_msg
     except httpx.HTTPError as e:
         error_msg = f"HTTP error during upload: {str(e)}"
         print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
@@ -733,6 +748,7 @@ async def agentic_search(
         result = await client.request(
             "POST",
             f"/collections/{collection_id}/agentic-search",
+            timeout=300.0,
             json=search_data,
         )
 
@@ -756,6 +772,12 @@ async def agentic_search(
 
         return json.dumps(output, ensure_ascii=False)
 
+    except httpx.ReadTimeout:
+        return json.dumps({
+            "error": "Agentic search timed out. The AI reasoning loop may need more time. Try reducing max_rewrites or using a simpler search_type.",
+            "answer": "",
+            "sources": [],
+        })
     except Exception as e:
         return json.dumps({"error": f"Agentic search failed: {e!s}"})
 

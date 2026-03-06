@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Loader2, FileText, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Loader2, FileText, ChevronDown, ChevronUp, Bot, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,15 +11,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Collection } from '@/types/collection'
 import { SearchResult } from '@/types/search'
 import { useTranslation } from '@/hooks/use-translation'
+import { useAgenticSearch } from '@/hooks/use-agentic-search'
+import AgenticResultView from '@/components/search/agentic-result-view'
 
 export default function SearchPage() {
   const { t } = useTranslation()
+
+  // Shared state (across tabs)
   const [collections, setCollections] = useState<Collection[]>([])
   const [selectedCollection, setSelectedCollection] = useState<string>('')
   const [query, setQuery] = useState('')
+
+  // Standard search state
   const [limit, setLimit] = useState(5)
   const [searchType, setSearchType] = useState('semantic')
   const [filterJson, setFilterJson] = useState('')
@@ -29,6 +36,15 @@ export default function SearchPage() {
   const [sources, setSources] = useState<string[]>([])
   const [showSources, setShowSources] = useState(false)
   const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set())
+
+  // Tab state (controlled so onKeyDown can branch)
+  const [activeTab, setActiveTab] = useState('standard')
+
+  // Agentic search state
+  const [agenticSearchType, setAgenticSearchType] = useState('hybrid')
+  const [agenticMaxRewrites, setAgenticMaxRewrites] = useState(3)
+  const [agenticFilterJson, setAgenticFilterJson] = useState('')
+  const { result: agenticResult, loading: agenticLoading, error: agenticError, execute: executeAgentic, cancel: cancelAgentic } = useAgenticSearch()
 
   const fetchCollections = useCallback(async () => {
     try {
@@ -40,10 +56,10 @@ export default function SearchPage() {
         })
         return
       }
-      
+
       const collectionsData: Collection[] = res.data
       setCollections(collectionsData)
-      
+
       if (collectionsData.length > 0) {
         setSelectedCollection(collectionsData[0].uuid)
       }
@@ -59,12 +75,12 @@ export default function SearchPage() {
 
   const loadSources = async () => {
     if (!selectedCollection) return
-    
+
     setLoadingSources(true)
     try {
       const response = await fetch(`/api/collections/${selectedCollection}/documents?limit=100`)
       const res = await response.json()
-      
+
       if (res.success && res.data) {
         const uniqueSources = new Set<string>()
         res.data.forEach((doc: any) => {
@@ -92,7 +108,7 @@ export default function SearchPage() {
       })
       return
     }
-    
+
     if (!selectedCollection) {
       toast.error(t('common.error'), {
         description: t('search.selectCollectionFirst')
@@ -129,7 +145,7 @@ export default function SearchPage() {
       })
 
       const res = await response.json()
-      
+
       if (res.success) {
         setResults(res.data || [])
         if (res.data && res.data.length > 0) {
@@ -150,6 +166,41 @@ export default function SearchPage() {
     }
   }
 
+  const handleAgenticSearch = async () => {
+    if (!query.trim()) {
+      toast.error(t('common.error'), {
+        description: t('search.enterSearchQuery')
+      })
+      return
+    }
+
+    if (!selectedCollection) {
+      toast.error(t('common.error'), {
+        description: t('search.selectCollectionFirst')
+      })
+      return
+    }
+
+    const params: any = {
+      question: query,
+      search_type: agenticSearchType,
+      max_rewrites: agenticMaxRewrites,
+    }
+
+    if (agenticFilterJson.trim()) {
+      try {
+        params.filter = JSON.parse(agenticFilterJson)
+      } catch {
+        toast.error(t('common.error'), {
+          description: t('search.invalidJson')
+        })
+        return
+      }
+    }
+
+    await executeAgentic(selectedCollection, params)
+  }
+
   const toggleResultExpansion = (index: number) => {
     setExpandedResults(prev => {
       const newSet = new Set(prev)
@@ -161,9 +212,6 @@ export default function SearchPage() {
       return newSet
     })
   }
-
-  
-
 
   return (
     <div className="min-h-screen p-6 bg-background dark:bg-background">
@@ -189,6 +237,7 @@ export default function SearchPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Shared: Collection selector */}
             <div className="space-y-2">
               <Label htmlFor="collection">{t('search.selectCollection')}</Label>
               <Select value={selectedCollection} onValueChange={setSelectedCollection}>
@@ -205,127 +254,238 @@ export default function SearchPage() {
               </Select>
             </div>
 
-            {selectedCollection && (
-              <Collapsible open={showSources} onOpenChange={setShowSources}>
-                <CollapsibleTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    View Available Sources
-                    {showSources ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-4 mt-4">
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      onClick={loadSources} 
-                      disabled={loadingSources}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {loadingSources ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          {t('common.loading')}
-                        </>
-                      ) : (
-                        'Load Sources'
-                      )}
-                    </Button>
-                  </div>
-                  {sources.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="font-medium text-sm dark:text-gray-200">Available Sources:</p>
-                      <div className="grid grid-cols-1 gap-2">
-                        {sources.map((source, index) => (
-                          <code key={index} className="text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded block dark:text-gray-200">
-                            {`{"source": "${source}"}`}
-                          </code>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-            )}
-
+            {/* Shared: Query input */}
             <div className="space-y-2">
               <Label htmlFor="query">{t('common.search')}</Label>
               <Input
                 id="query"
-                placeholder={t('search.searchPlaceholder')}
+                placeholder={t(activeTab === 'agentic' ? 'search.askQuestion' : 'search.searchPlaceholder')}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (activeTab === 'agentic') {
+                      handleAgenticSearch()
+                    } else {
+                      handleSearch()
+                    }
+                  }
+                }}
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="limit">Result Limit</Label>
-                <Select value={limit.toString()} onValueChange={(value) => setLimit(Number(value))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[1, 5, 10, 20, 30, 50].map((num) => (
-                      <SelectItem key={num} value={num.toString()}>
-                        {num}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Tabs */}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="w-full">
+                <TabsTrigger value="standard" className="flex-1 gap-1.5">
+                  <Search className="h-4 w-4" />
+                  {t('search.standardSearch')}
+                </TabsTrigger>
+                <TabsTrigger value="agentic" className="flex-1 gap-1.5">
+                  <Bot className="h-4 w-4" />
+                  {t('search.agenticSearch')}
+                </TabsTrigger>
+              </TabsList>
 
-              <div className="space-y-2">
-                <Label htmlFor="searchType">{t('search.searchType')}</Label>
-                <Select value={searchType} onValueChange={setSearchType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="semantic">{t('search.semanticSearch')}</SelectItem>
-                    <SelectItem value="keyword">{t('search.keywordSearch')}</SelectItem>
-                    <SelectItem value="hybrid">{t('search.hybridSearch')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Standard Search Tab */}
+              <TabsContent value="standard" className="space-y-6 mt-4">
+                {selectedCollection && (
+                  <Collapsible open={showSources} onOpenChange={setShowSources}>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between">
+                        View Available Sources
+                        {showSources ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-4 mt-4">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          onClick={loadSources}
+                          disabled={loadingSources}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          {loadingSources ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                              {t('common.loading')}
+                            </>
+                          ) : (
+                            'Load Sources'
+                          )}
+                        </Button>
+                      </div>
+                      {sources.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="font-medium text-sm dark:text-gray-200">Available Sources:</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            {sources.map((source, index) => (
+                              <code key={index} className="text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded block dark:text-gray-200">
+                                {`{"source": "${source}"}`}
+                              </code>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
 
-              <div className="space-y-2">
-                <Label htmlFor="filter">{t('collections.table.metadata')} Filter</Label>
-                <Textarea
-                  id="filter"
-                  placeholder={`{"source": "sample.pdf"}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="limit">Result Limit</Label>
+                    <Select value={limit.toString()} onValueChange={(value) => setLimit(Number(value))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 5, 10, 20, 30, 50].map((num) => (
+                          <SelectItem key={num} value={num.toString()}>
+                            {num}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="searchType">{t('search.searchType')}</Label>
+                    <Select value={searchType} onValueChange={setSearchType}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="semantic">{t('search.semanticSearch')}</SelectItem>
+                        <SelectItem value="keyword">{t('search.keywordSearch')}</SelectItem>
+                        <SelectItem value="hybrid">{t('search.hybridSearch')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="filter">{t('collections.table.metadata')} Filter</Label>
+                    <Textarea
+                      id="filter"
+                      placeholder={`{"source": "sample.pdf"}
 
 # Other examples
 {"file_id": "abc123"}
 {"source": "document.pdf", "type": "report"}`}
-                  value={filterJson}
-                  onChange={(e) => setFilterJson(e.target.value)}
-                  rows={2}
-                  className="text-sm font-mono"
-                />
-              </div>
-            </div>
+                      value={filterJson}
+                      onChange={(e) => setFilterJson(e.target.value)}
+                      rows={2}
+                      className="text-sm font-mono"
+                    />
+                  </div>
+                </div>
 
-            <Button 
-              onClick={handleSearch} 
-              disabled={loading || !query.trim()}
-              className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  {t('search.searching')}
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4 mr-2" />
-                  {t('search.searchButton')}
-                </>
-              )}
-            </Button>
+                <Button
+                  onClick={handleSearch}
+                  disabled={loading || !query.trim()}
+                  className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      {t('search.searching')}
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4 mr-2" />
+                      {t('search.searchButton')}
+                    </>
+                  )}
+                </Button>
+              </TabsContent>
+
+              {/* Agentic Search Tab */}
+              <TabsContent value="agentic" className="space-y-6 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  {t('search.agenticDescription')}
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('search.searchType')}</Label>
+                    <Select value={agenticSearchType} onValueChange={setAgenticSearchType}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="semantic">{t('search.semanticSearch')}</SelectItem>
+                        <SelectItem value="keyword">{t('search.keywordSearch')}</SelectItem>
+                        <SelectItem value="hybrid">{t('search.hybridSearch')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{t('search.maxRewrites')}</Label>
+                    <Select value={agenticMaxRewrites.toString()} onValueChange={(v) => setAgenticMaxRewrites(Number(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 1, 2, 3, 5, 10].map((num) => (
+                          <SelectItem key={num} value={num.toString()}>
+                            {num}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{t('collections.table.metadata')} Filter</Label>
+                    <Textarea
+                      placeholder='{"source": "sample.pdf"}'
+                      value={agenticFilterJson}
+                      onChange={(e) => setAgenticFilterJson(e.target.value)}
+                      rows={2}
+                      className="text-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {agenticLoading ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-3 p-6 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                      <span className="text-blue-700 dark:text-blue-300 font-medium">
+                        {t('search.agenticSearching')}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={cancelAgentic}
+                      className="w-full"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      {t('search.cancelSearch')}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={handleAgenticSearch}
+                    disabled={!query.trim() || !selectedCollection}
+                    className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                  >
+                    <Bot className="w-4 h-4 mr-2" />
+                    {t('search.agenticSearch')}
+                  </Button>
+                )}
+
+                {agenticError && (
+                  <div className="p-4 bg-red-50 dark:bg-red-950 rounded-lg text-red-700 dark:text-red-300 text-sm">
+                    {agenticError}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
 
+        {/* Standard search results (outside tabs so they persist when switching) */}
         {results.length > 0 && (
           <Card className="shadow-none">
             <CardHeader>
@@ -371,14 +531,14 @@ export default function SearchPage() {
                     <div className="space-y-4">
                       <div>
                         <h4 className="font-medium text-sm text-gray-600 dark:text-gray-300 mb-2">Content:</h4>
-                        <div 
-                          className={`text-gray-900 dark:text-gray-100 max-w-none break-words overflow-wrap-anywhere word-break overflow-hidden prose prose-sm dark:prose-invert ${!expandedResults.has(index) ? 'line-clamp-3' : ''}`} 
+                        <div
+                          className={`text-gray-900 dark:text-gray-100 max-w-none break-words overflow-wrap-anywhere word-break overflow-hidden prose prose-sm dark:prose-invert ${!expandedResults.has(index) ? 'line-clamp-3' : ''}`}
                           style={{ wordBreak: 'break-word', overflowWrap: 'break-word', hyphens: 'auto', whiteSpace: 'pre-wrap' }}
                         >
                           {result.page_content}
                         </div>
                       </div>
-                      
+
                       {expandedResults.has(index) && (
                         <>
                           {result.metadata && Object.keys(result.metadata).length > 0 && (
@@ -389,7 +549,7 @@ export default function SearchPage() {
                               </pre>
                             </div>
                           )}
-                          
+
                           <div>
                             <h4 className="font-medium text-sm text-gray-600 dark:text-gray-300 mb-1">Document ID:</h4>
                             <code className="text-xs bg-gray-100 dark:bg-gray-800 dark:text-gray-200 px-2 py-1 rounded">
@@ -404,6 +564,11 @@ export default function SearchPage() {
               ))}
             </CardContent>
           </Card>
+        )}
+
+        {/* Agentic search results (outside tabs so they persist when switching) */}
+        {agenticResult && (
+          <AgenticResultView result={agenticResult} />
         )}
       </div>
     </div>

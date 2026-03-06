@@ -1,0 +1,9 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ralph"}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ralplan"}
+{"t":0,"agent":"system","event":"mode_change","mode_from":"none","mode_to":"ralph"}
+{"t":0,"agent":"a6293b8","agent_type":"architect","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a95529c","agent_type":"code-reviewer-fixer","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ab929b9","agent_type":"deep-executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a6293b8","agent_type":"architect","event":"agent_stop","success":true,"duration_ms":158980}
+{"t":0,"agent":"a95529c","agent_type":"code-reviewer-fixer","event":"agent_stop","success":true,"duration_ms":207368}
+{"t":0,"agent":"ab929b9","agent_type":"deep-executor","event":"agent_stop","success":true,"duration_ms":233310}

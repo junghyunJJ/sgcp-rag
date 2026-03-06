@@ -1,0 +1,95 @@
+%%{init: {'theme': 'neutral', 'themeVariables': {'primaryColor': '#f8f9fa', 'primaryBorderColor': '#495057', 'lineColor': '#495057', 'fontSize': '14px'}}}%%
+flowchart TD
+    subgraph ENTRY["진입점 (Entry Points)"]
+        MCP["MCP 도구<br/><b>agentic_search()</b><br/><i>mcpserver/mcp_server.py</i>"]
+        REST["REST API<br/><b>POST /collections/{id}/agentic-search</b><br/><i>api/agentic.py</i>"]
+    end
+
+    subgraph ENGINE["Agentic RAG 엔진 (agent/)"]
+        INIT["<b>run_agentic_search()</b><br/><i>__init__.py</i><br/>메인 진입점 · LLM 초기화 · 그래프 실행"]
+
+        subgraph GRAPH_BUILD["그래프 구성 (graph.py)"]
+            GRAPH["<b>build_agentic_rag_graph()</b><br/>StateGraph 빌드 · 노드 등록 · 조건부 엣지"]
+            ROUTE1["<b>_route_after_grading()</b><br/>문서 관련성 기반 라우팅"]
+            ROUTE2["<b>_route_after_generation_check()</b><br/>생성 품질 기반 라우팅"]
+        end
+
+        subgraph NODES["노드 함수 (nodes.py) — 5개"]
+            N1["retrieve<br/>문서 검색"]
+            N2["grade_documents<br/>문서 관련성 평가"]
+            N3["generate<br/>답변 생성"]
+            N4["rewrite_query<br/>쿼리 재작성"]
+            N5["grade_generation<br/>답변 품질 검증"]
+        end
+
+        subgraph GRADERS["평가 모델 (graders.py)"]
+            G1["GradeDocumentRelevance<br/><i>Pydantic 모델</i>"]
+            G2["GradeHallucination<br/><i>Pydantic 모델</i>"]
+            G3["GradeAnswer<br/><i>Pydantic 모델</i>"]
+            GF1["get_document_grader()"]
+            GF2["get_hallucination_grader()"]
+            GF3["get_answer_grader()"]
+        end
+
+        subgraph PROMPTS["프롬프트 템플릿 (prompts.py) — 5개"]
+            P1["DOCUMENT_GRADER_PROMPT"]
+            P2["QUERY_REWRITER_PROMPT"]
+            P3["ANSWER_GENERATOR_PROMPT"]
+            P4["HALLUCINATION_GRADER_PROMPT"]
+            P5["ANSWER_GRADER_PROMPT"]
+        end
+
+        subgraph SUPPORT["지원 모듈"]
+            STATE["<b>state.py</b><br/>AgentState TypedDict<br/>14개 필드"]
+            CONFIG["<b>config.py</b><br/>get_agent_llm()<br/>OpenAI / Google 선택"]
+        end
+    end
+
+    subgraph DATA["데이터 계층 (Data Layer)"]
+        COLL["<b>Collection.search()</b><br/><i>database/collections.py</i><br/>검색 유형: semantic · keyword · hybrid"]
+        PG[("PostgreSQL<br/>+ pgvector<br/>벡터 임베딩 저장소")]
+    end
+
+    MCP -->|"run_agentic_search() 호출"| INIT
+    REST -->|"run_agentic_search() 호출"| INIT
+    INIT -->|"build_agentic_rag_graph(llm)"| GRAPH
+    INIT -->|"get_agent_llm()"| CONFIG
+
+    GRAPH --> NODES
+    GRAPH --> ROUTE1
+    GRAPH --> ROUTE2
+
+    N1 -->|"Collection.search() 호출"| COLL
+    COLL -->|"SQL + 벡터 검색"| PG
+
+    N2 -->|"get_document_grader()"| GF1
+    N5 -->|"get_hallucination_grader()"| GF2
+    N5 -->|"get_answer_grader()"| GF3
+
+    GF1 --> G1
+    GF2 --> G2
+    GF3 --> G3
+
+    GF1 -->|"uses"| P1
+    N4 -->|"uses"| P2
+    N3 -->|"uses"| P3
+    GF2 -->|"uses"| P4
+    GF3 -->|"uses"| P5
+
+    NODES -.->|"reads/writes"| STATE
+
+    classDef entryStyle fill:#dbe9ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    classDef engineStyle fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef nodeStyle fill:#ffffff,stroke:#4b5563,stroke-width:1.5px,color:#111827
+    classDef graderStyle fill:#fefce8,stroke:#ca8a04,stroke-width:1.5px,color:#713f12
+    classDef promptStyle fill:#fdf4ff,stroke:#9333ea,stroke-width:1.5px,color:#581c87
+    classDef dataStyle fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12
+    classDef supportStyle fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#334155
+
+    class MCP,REST entryStyle
+    class INIT engineStyle
+    class N1,N2,N3,N4,N5 nodeStyle
+    class G1,G2,G3,GF1,GF2,GF3 graderStyle
+    class P1,P2,P3,P4,P5 promptStyle
+    class COLL,PG dataStyle
+    class STATE,CONFIG supportStyle
