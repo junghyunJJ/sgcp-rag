@@ -304,4 +304,71 @@ langconnect_mcp/
 │   │   └── config.py          # LLM 프로바이더 선택 (OpenAI / Google)
 │   └── database/
 │       └── collections.py     # Collection.search() — PostgreSQL + pgvector
+├── next-connect-ui/src/
+│   ├── app/api/collections/[id]/
+│   │   └── agentic-search/
+│   │       └── route.ts       # Next.js API 프록시 → FastAPI
+│   ├── hooks/
+│   │   └── use-agentic-search.ts  # React hook (execute, cancel, reset)
+│   └── components/search/
+│       └── agentic-result-view.tsx # 결과 UI (답변, 출처, 단계, 재작성)
 ```
+
+---
+
+## 프론트엔드 통합 (Frontend Integration)
+
+Next.js 프론트엔드에서 Agentic RAG 검색을 호출하고 결과를 표시하는 구조이다.
+
+### 요청 흐름
+
+```mermaid
+%%{init: {'theme': 'neutral', 'themeVariables': {'fontSize': '14px'}}}%%
+flowchart LR
+    subgraph UI["React UI"]
+        VIEW["<b>AgenticResultView</b><br/><i>agentic-result-view.tsx</i><br/>4개 섹션 렌더링"]
+        HOOK["<b>useAgenticSearch()</b><br/><i>use-agentic-search.ts</i><br/>상태 관리 + AbortController"]
+    end
+
+    subgraph NEXT["Next.js API Route"]
+        ROUTE["<b>POST route.ts</b><br/>serverFetchAPI() 프록시"]
+    end
+
+    subgraph BACKEND["FastAPI"]
+        API["<b>POST /collections/{id}/agentic-search</b><br/><i>api/agentic.py</i>"]
+    end
+
+    VIEW -->|"execute()"| HOOK
+    HOOK -->|"POST /api/collections/{id}/agentic-search"| ROUTE
+    ROUTE -->|"serverFetchAPI()"| API
+
+    classDef uiStyle fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    classDef nextStyle fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#14532d
+    classDef apiStyle fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12
+
+    class VIEW,HOOK uiStyle
+    class ROUTE nextStyle
+    class API apiStyle
+```
+
+### UI 구성 요소
+
+`AgenticResultView` 컴포넌트는 4개의 접이식 섹션으로 결과를 표시한다:
+
+| 섹션 | 설명 | 데이터 소스 |
+|------|------|------------|
+| **AI 답변** | ReactMarkdown으로 렌더링된 LLM 답변 | `result.answer` |
+| **소스 문서** | 검색된 관련 문서 목록 (메타데이터 + 내용 미리보기) | `result.documents` |
+| **실행 단계** | retrieve → grade → generate 등 각 단계를 아이콘과 함께 표시 | `result.steps` |
+| **쿼리 재작성** | 재작성된 쿼리 이력 (재시도가 발생한 경우에만 표시) | `result.query_rewrites` |
+
+### useAgenticSearch Hook
+
+| 메서드/상태 | 타입 | 설명 |
+|-------------|------|------|
+| `execute(collectionId, params)` | `function` | Agentic 검색 실행 |
+| `cancel()` | `function` | 진행 중인 요청 취소 (AbortController) |
+| `reset()` | `function` | 상태 초기화 |
+| `result` | `AgenticSearchResult \| null` | 검색 결과 |
+| `loading` | `boolean` | 로딩 상태 |
+| `error` | `string \| null` | 에러 메시지 |

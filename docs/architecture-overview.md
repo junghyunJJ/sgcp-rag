@@ -131,8 +131,20 @@ classDiagram
         +get_vectorstore_engine()
     }
 
+    class agentic_router {
+        +POST /collections/{id}/agentic-search
+    }
+
+    class AgenticRAGEngine {
+        +run_agentic_search(collection_id, question, ...)
+        +build_agentic_rag_graph(llm)
+    }
+
     FastAPI_APP --> collections_router
     FastAPI_APP --> documents_router
+    FastAPI_APP --> agentic_router
+    agentic_router --> AgenticRAGEngine
+    AgenticRAGEngine --> Collection
     collections_router --> CollectionsManager
     documents_router --> Collection
     documents_router --> DocumentProcessor
@@ -271,8 +283,52 @@ stdio 서버(`mcp_server.py`)에서 등록된 도구들:
 | `delete_document` | 문서 삭제 | `collection_id`, `document_id` |
 | `get_health_status` | API 헬스 체크 | 없음 |
 | `multi_query` | Multi-Query 생성 (LLM 활용) | `question` |
+| `agentic_search` | Agentic RAG 검색 (LangGraph 기반 자기 교정 RAG) | `collection_id`, `question`, `search_type`, `search_limit`, `max_rewrites` |
 
 > **참조**: MCP 도구 등록은 `mcpserver/mcp_server.py`에서 `@mcp.tool` 데코레이터로 수행된다.
+
+### 3.5 Agentic RAG 검색 흐름
+
+LangGraph 기반의 Self-Correcting RAG 파이프라인이다. 문서 검색 → 관련성 평가 → 답변 생성 → 품질 검증의 루프를 통해 높은 품질의 답변을 생성한다.
+
+```mermaid
+sequenceDiagram
+    participant Client as 클라이언트
+    participant NextJS as Next.js (3005)
+    participant API as FastAPI (8888)
+    participant Agent as Agentic RAG 엔진<br/>(langconnect/agent/)
+    participant LLM as LLM (OpenAI/Google)
+    participant PG as PostgreSQL (5432)
+
+    Client->>NextJS: POST /api/collections/{id}/agentic-search
+    NextJS->>API: POST /collections/{id}/agentic-search (프록시)
+    API->>Agent: run_agentic_search()
+
+    Note over Agent, PG: LangGraph StateGraph 실행
+
+    Agent->>PG: retrieve: Collection.search()
+    PG-->>Agent: 검색 문서 반환
+    Agent->>LLM: grade_documents: 문서 관련성 평가
+    LLM-->>Agent: 관련/비관련 판정
+
+    alt 관련 문서 존재
+        Agent->>LLM: generate: 답변 생성
+        LLM-->>Agent: 답변
+        Agent->>LLM: grade_generation: 환각 + 품질 검사
+        LLM-->>Agent: PASSED / FAILED
+    else 관련 문서 없음 & 재시도 가능
+        Agent->>LLM: rewrite_query: 쿼리 재작성
+        LLM-->>Agent: 재작성된 쿼리
+        Agent->>PG: retrieve: 재검색
+        Note over Agent: 루프 반복 (최대 max_rewrites)
+    end
+
+    Agent-->>API: {answer, documents, steps, query_rewrites}
+    API-->>NextJS: 검색 결과
+    NextJS-->>Client: 결과 표시 (답변, 출처, 실행 단계)
+```
+
+> **참조**: Agentic RAG 엔진은 `langconnect/agent/` 패키지에 구현되어 있다. 진입점은 `langconnect/agent/__init__.py`의 `run_agentic_search()`이며, REST API는 `langconnect/api/agentic.py`, MCP 도구는 `mcpserver/mcp_server.py`의 `agentic_search()`에서 호출한다. 상세 아키텍처는 `docs/agenticRAG_architecture.md`를 참조.
 
 ---
 
