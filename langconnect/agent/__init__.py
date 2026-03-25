@@ -4,12 +4,15 @@ Main entry point: run_agentic_search()
 Called by both the REST API and MCP tools.
 """
 
+import asyncio
 import logging
 import os
 from typing import Any, Literal
 
 from langconnect.agent.config import get_agent_llm
 from langconnect.agent.graph import build_agentic_rag_graph
+
+AGENTIC_SEARCH_TIMEOUT = 120  # seconds
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,10 @@ async def run_agentic_search(
             "error": None,
         }
 
-        result = await graph.ainvoke(initial_state)
+        result = await asyncio.wait_for(
+            graph.ainvoke(initial_state),
+            timeout=AGENTIC_SEARCH_TIMEOUT,
+        )
 
         return {
             "generation": result.get("generation", ""),

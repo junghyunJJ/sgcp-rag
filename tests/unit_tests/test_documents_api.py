@@ -475,9 +475,6 @@ async def test_documents_create_with_mismatched_metadata():
         assert "does not match number of files" in data["detail"]
 
 
-        assert "Collection not found" in data["detail"]
-
-
 async def test_documents_bulk_delete() -> None:
     """Test bulk deleting documents by document_ids and file_ids."""
     async with get_async_test_client() as client:

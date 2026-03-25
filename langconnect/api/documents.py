@@ -51,13 +51,16 @@ async def documents_bulk_delete(
 
 
 
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+
 @router.post("/collections/{collection_id}/documents", response_model=dict[str, Any])
 async def documents_create(
     collection_id: UUID,
     files: list[UploadFile] = File(...),
     metadatas_json: str | None = Form(None),
-    chunk_size: int = Form(1000),
-    chunk_overlap: int = Form(200),
+    chunk_size: int = Form(1000, ge=10, le=10000),
+    chunk_overlap: int = Form(200, ge=0, le=5000),
 ):
     """Processes and indexes (adds) new document files with optional metadata.
 
@@ -65,9 +68,25 @@ async def documents_create(
         collection_id: UUID of the collection to add documents to
         files: List of files to upload
         metadatas_json: JSON string containing metadata for each file
-        chunk_size: Maximum number of characters in each chunk (default: 1000)
-        chunk_overlap: Number of overlapping characters between chunks (default: 200)
+        chunk_size: Maximum number of characters in each chunk (default: 1000, range: 10-10000)
+        chunk_overlap: Number of overlapping characters between chunks (default: 200, range: 0-5000)
     """
+    if chunk_overlap >= chunk_size:
+        raise HTTPException(
+            status_code=400,
+            detail="chunk_overlap must be less than chunk_size.",
+        )
+
+    # Validate file sizes
+    for file in files:
+        contents = await file.read()
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{file.filename}' exceeds maximum size of 50MB.",
+            )
+        await file.seek(0)  # Reset for later reading
+
     # If no metadata JSON is provided, fill with None
     if not metadatas_json:
         metadatas: list[dict] | list[None] = [None] * len(files)

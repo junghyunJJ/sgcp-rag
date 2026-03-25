@@ -1,21 +1,20 @@
-"""Test PDFPlumberParser import and configuration."""
+"""Test PyMuPDF4LLM parser import and configuration."""
 
 
-def test_pdf_plumber_parser_configured() -> None:
-    """Test that PDFPlumberParser is correctly configured in document_processor."""
-    from langchain_community.document_loaders.parsers import PDFPlumberParser
-
+def test_pymupdf4llm_parser_configured() -> None:
+    """Test that PyMuPDF4LLMParser is correctly configured in document_processor."""
+    from langconnect.parsers.pymupdf_parser import PyMuPDF4LLMParser
     from langconnect.services.document_processor import HANDLERS
 
-    # Verify PDFPlumberParser is used for PDFs
+    # Verify PyMuPDF4LLMParser is used for PDFs
     assert "application/pdf" in HANDLERS
-    assert isinstance(HANDLERS["application/pdf"], PDFPlumberParser)
+    assert isinstance(HANDLERS["application/pdf"], PyMuPDF4LLMParser)
 
 
-def test_pdf_plumber_import() -> None:
-    """Test that we can import PDFPlumberParser."""
-    from langchain_community.document_loaders.parsers import PDFPlumberParser
+def test_pymupdf4llm_import() -> None:
+    """Test that we can import PyMuPDF4LLMParser."""
+    from langconnect.parsers.pymupdf_parser import PyMuPDF4LLMParser
 
     # Verify the parser can be instantiated
-    parser = PDFPlumberParser()
+    parser = PyMuPDF4LLMParser()
     assert parser is not None

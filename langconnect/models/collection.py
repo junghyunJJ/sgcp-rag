@@ -1,4 +1,3 @@
-import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -42,41 +41,4 @@ class CollectionResponse(BaseModel):
     chunk_count: int = Field(0, description="The number of chunks in the collection.")
 
     class Config:
-        # Allows creating model from dict like
-        # {'uuid': '...', 'name': '...', 'metadata': {...}}
         from_attributes = True
-
-
-# =====================
-# Document Schemas
-# =====================
-
-
-class DocumentBase(BaseModel):
-    page_content: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class DocumentCreate(DocumentBase):
-    collection_id: str
-    embedding: list[float] | None = (
-        None  # Embedding can be added during creation or later
-    )
-
-
-class DocumentUpdate(BaseModel):
-    page_content: str | None = None
-    metadata: dict[str, Any] | None = None
-    embedding: list[float] | None = None
-
-
-class DocumentResponse(DocumentBase):
-    id: str
-    collection_id: str
-    embedding: list[float] | None = None  # Represent embedding as list of floats
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
-
-    class Config:
-        orm_mode = True
-        from_attributes = True  # Pydantic v2 way

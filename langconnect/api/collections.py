@@ -52,7 +52,7 @@ async def collections_delete(
 ):
     """Deletes a specific PGVector collection by name."""
     await CollectionsManager(None).delete(str(collection_id))
-    return "Collection deleted successfully."
+    return None
 
 
 @router.patch("/{collection_id}", response_model=CollectionResponse)

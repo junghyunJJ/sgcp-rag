@@ -45,7 +45,7 @@ async def retrieve(state: AgentState) -> dict[str, Any]:
         filter=state.get("search_filter"),
     )
 
-    steps = state.get("steps", [])
+    steps = list(state.get("steps", []))
     steps.append(f"retrieve: found {len(documents)} documents")
 
     return {"documents": documents, "steps": steps}
@@ -58,7 +58,7 @@ async def grade_documents(
     logger.info("--- GRADE DOCUMENTS ---")
     question = state["question"]
     documents = state.get("documents", [])
-    steps = state.get("steps", [])
+    steps = list(state.get("steps", []))
 
     grader = get_document_grader(llm)
     relevant_docs = []
@@ -85,7 +85,7 @@ async def generate(
     logger.info("--- GENERATE ---")
     question = state["question"]
     relevant_docs = state.get("relevant_documents", [])
-    steps = state.get("steps", [])
+    steps = list(state.get("steps", []))
 
     context = "\n\n---\n\n".join(
         doc.get("page_content", "") for doc in relevant_docs
@@ -111,8 +111,8 @@ async def rewrite_query(
     logger.info("--- REWRITE QUERY ---")
     question = state["question"]
     rewrite_count = state.get("rewrite_count", 0)
-    query_rewrites = state.get("query_rewrites", [])
-    steps = state.get("steps", [])
+    query_rewrites = list(state.get("query_rewrites", []))
+    steps = list(state.get("steps", []))
 
     prompt = ChatPromptTemplate.from_messages([
         ("human", QUERY_REWRITER_PROMPT),
@@ -146,7 +146,7 @@ async def grade_generation(
     generation = state.get("generation", "")
     relevant_docs = state.get("relevant_documents", [])
     question = state["question"]
-    steps = state.get("steps", [])
+    steps = list(state.get("steps", []))
 
     # Stage 1: Hallucination check
     documents_text = "\n\n".join(

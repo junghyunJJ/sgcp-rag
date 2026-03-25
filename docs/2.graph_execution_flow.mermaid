@@ -1,30 +1,40 @@
-%%{init: {'theme': 'neutral', 'themeVariables': {'primaryColor': '#f8f9fa', 'primaryBorderColor': '#495057', 'lineColor': '#495057', 'fontSize': '14px'}}}%%
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Helvetica, Arial",
+    "primaryColor": "#f5f7fa",
+    "primaryBorderColor": "#c9d1d9",
+    "lineColor": "#9aa4b2",
+    "secondaryColor": "#eef2f7",
+    "tertiaryColor": "#ffffff"
+  }
+}}%%
 flowchart TD
     START(["START"])
 
-    RETRIEVE["<b>retrieve</b><br/>Collection.search() 호출<br/>문서 검색 (semantic/keyword/hybrid)<br/><i>→ documents, steps 갱신</i>"]
+    RETRIEVE["<b>retrieve</b><br/>Collection.search() call<br/>document search (semantic/keyword/hybrid)<br/><i>→ documents, steps update</i>"]
 
-    GRADE_DOCS["<b>grade_documents</b><br/>LLM으로 각 문서 관련성 평가<br/>binary score: yes / no<br/><i>→ relevant_documents, steps 갱신</i>"]
+    GRADE_DOCS[["<b>grade_documents</b><br/>LLM evaluates relevance of each document<br/>binary score: yes / no<br/><i>→ relevant_documents, steps update</i>"]]
 
-    ROUTE_GRADE{"<b>_route_after_grading</b><br/>관련 문서 존재 여부 판단"}
+    ROUTE_GRADE{"<b>_route_after_grading</b><br/>determine if relevant documents exist"}
 
-    REWRITE["<b>rewrite_query</b><br/>LLM으로 쿼리 재작성<br/>벡터 검색 최적화<br/><i>→ question, query_rewrites,<br/>rewrite_count, steps 갱신</i>"]
+    REWRITE[["<b>rewrite_query</b><br/>LLM query rewriting<br/>vector search optimization<br/><i>→ question, query_rewrites,<br/>rewrite_count, steps update</i>"]]
 
-    GENERATE["<b>generate</b><br/>관련 문서 컨텍스트 기반<br/>LLM 답변 생성<br/><i>→ generation, steps 갱신</i>"]
+    GENERATE[["<b>generate</b><br/>based on relevant document context<br/>LLM answer generation<br/><i>→ generation, steps update</i>"]]
 
-    GRADE_GEN["<b>grade_generation</b><br/>2단계 검증<br/>① 환각 검사 (Hallucination Check)<br/>② 답변 품질 검사 (Answer Quality Check)<br/><i>→ steps 갱신</i>"]
+    GRADE_GEN[["<b>grade_generation</b><br/>2-stage verification<br/>① Hallucination Check<br/>② Answer Quality Check<br/><i>→ steps update</i>"]]
 
-    ROUTE_GEN{"<b>_route_after_generation_check</b><br/>steps의 마지막 항목에<br/>PASSED 포함 여부 판단"}
+    ROUTE_GEN{"<b>_route_after_generation_check</b><br/>check if last step<br/>contains PASSED"}
 
     MAXCHECK_GRADE{"rewrite_count<br/>< max_rewrites?"}
     MAXCHECK_GEN{"rewrite_count<br/>< max_rewrites?"}
 
-    FORCED_GEN["강제 생성<br/><i>(max_rewrites 도달,<br/>관련 문서 없음)</i>"]
+    FORCED_GEN["Forced generation<br/><i>(max_rewrites reached,<br/>no relevant docs)</i>"]
 
-    FORCED_END["강제 종료<br/><i>(max_rewrites 도달,<br/>품질 미달)</i>"]
+    FORCED_END["Forced termination<br/><i>(max_rewrites reached,<br/>quality insufficient)</i>"]
 
-    END_OK(["END<br/>성공"])
-    END_FORCED(["END<br/>강제 종료"])
+    END_OK(["END<br/>Success"])
+    END_FORCED(["END<br/>Forced termination"])
 
     START --> RETRIEVE
     RETRIEVE --> GRADE_DOCS
@@ -33,42 +43,29 @@ flowchart TD
     ROUTE_GRADE -->|"relevant_documents > 0"| GENERATE
     ROUTE_GRADE -->|"relevant_documents == 0"| MAXCHECK_GRADE
 
-    MAXCHECK_GRADE -->|"예 (재시도 가능)"| REWRITE
-    MAXCHECK_GRADE -->|"아니오 (한계 도달)"| FORCED_GEN
+    MAXCHECK_GRADE -->|"Yes (retry possible)"| REWRITE
+    MAXCHECK_GRADE -->|"No (limit reached)"| FORCED_GEN
 
     FORCED_GEN --> GENERATE
     GENERATE --> GRADE_GEN
     GRADE_GEN --> ROUTE_GEN
 
-    ROUTE_GEN -->|"PASSED (두 검사 모두 통과)"| END_OK
-    ROUTE_GEN -->|"FAILED (검사 실패)"| MAXCHECK_GEN
+    ROUTE_GEN -->|"PASSED (Both checks passed)"| END_OK
+    ROUTE_GEN -->|"FAILED (Check failed)"| MAXCHECK_GEN
 
-    MAXCHECK_GEN -->|"예 (재시도 가능)"| REWRITE
-    MAXCHECK_GEN -->|"아니오 (한계 도달)"| FORCED_END
+    MAXCHECK_GEN -->|"Yes (retry possible)"| REWRITE
+    MAXCHECK_GEN -->|"No (limit reached)"| FORCED_END
     FORCED_END --> END_FORCED
 
-    REWRITE -->|"루프백 (retrieve 재실행)"| RETRIEVE
+    REWRITE -->|"Loop back (re-run retrieve)"| RETRIEVE
 
-    classDef startEnd fill:#d1fae5,stroke:#059669,stroke-width:2.5px,color:#064e3b
-    classDef nodeStyle fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
-    classDef decisionStyle fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
-    classDef retryStyle fill:#fef3c7,stroke:#f59e0b,stroke-width:1.5px,color:#78350f
-    classDef forcedStyle fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px,color:#7f1d1d
-    classDef endFail fill:#fee2e2,stroke:#dc2626,stroke-width:2.5px,color:#7f1d1d
+    classDef module fill:#ffffff,stroke:#c9d1d9,stroke-width:1.5px,rx:12,ry:12,color:#1f2933
+    classDef decision fill:#e3f2fd,stroke:#90caf9,stroke-width:1.5px,rx:12,ry:12
+    classDef agent fill:#f4f6f8,stroke:#9aa4b2,stroke-width:2px,rx:18,ry:18
+    classDef tool fill:#eceff1,stroke:#b0bec5,stroke-width:1.2px,rx:10,ry:10
+    classDef terminal fill:#263238,color:#ffffff,stroke:#263238,stroke-width:2px,rx:15,ry:15
 
-    class START,END_OK startEnd
-    class RETRIEVE,GRADE_DOCS,GENERATE,GRADE_GEN nodeStyle
-    class ROUTE_GRADE,ROUTE_GEN,MAXCHECK_GRADE,MAXCHECK_GEN decisionStyle
-    class REWRITE retryStyle
-    class FORCED_GEN,FORCED_END forcedStyle
-    class END_FORCED endFail
-
-    linkStyle 2 stroke:#16a34a,stroke-width:2.5px
-    linkStyle 3 stroke:#dc2626,stroke-width:2px
-    linkStyle 4 stroke:#16a34a,stroke-width:2px
-    linkStyle 5 stroke:#dc2626,stroke-width:2px,stroke-dasharray:4
-    linkStyle 9 stroke:#16a34a,stroke-width:2.5px
-    linkStyle 10 stroke:#dc2626,stroke-width:2px
-    linkStyle 11 stroke:#16a34a,stroke-width:2px
-    linkStyle 12 stroke:#dc2626,stroke-width:2px,stroke-dasharray:4
-    linkStyle 14 stroke:#f59e0b,stroke-width:2.5px,stroke-dasharray:5
+    class START,END_OK,END_FORCED terminal
+    class GRADE_DOCS,REWRITE,GENERATE,GRADE_GEN agent
+    class RETRIEVE,FORCED_GEN,FORCED_END module
+    class ROUTE_GRADE,ROUTE_GEN,MAXCHECK_GRADE,MAXCHECK_GEN decision

@@ -8,7 +8,7 @@ The current implementations are based on langchain-postgres PGVector class.
 Replace with your own implementation or favorite vectorstore if needed.
 """
 
-import builtins
+import asyncio
 import json
 import logging
 import uuid
@@ -370,7 +370,7 @@ class Collection:
         """Add one or more documents to the collection."""
         details = await self._get_details_or_raise()
         store = get_vectorstore(collection_name=details["table_id"])
-        added_ids = store.add_documents(documents)
+        added_ids = await asyncio.to_thread(store.add_documents, documents)
         return added_ids
 
     async def delete(
@@ -644,7 +644,7 @@ class Collection:
         limit: int = 4,
         search_type: Literal["semantic", "keyword", "hybrid"] = "semantic",
         filter: Optional[dict[str, Any]] = None,
-    ) -> builtins.list[dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Run a search in the collection.
 
         Args:
@@ -690,7 +690,9 @@ class Collection:
             store = get_vectorstore(collection_name=details["table_id"])
             # Get more results initially if filter is applied
             k = limit * 3 if filter else limit
-            results = store.similarity_search_with_score(query, k=k)
+            results = await asyncio.to_thread(
+                store.similarity_search_with_score, query, k=k
+            )
 
             # Convert to standard format
             # Note: similarity_search_with_score returns DISTANCE, not similarity
@@ -778,7 +780,9 @@ class Collection:
         # hybrid
         # Get semantic search results
         store = get_vectorstore(collection_name=details["table_id"])
-        semantic_results = store.similarity_search_with_score(query, k=limit * 2)
+        semantic_results = await asyncio.to_thread(
+            store.similarity_search_with_score, query, k=limit * 2
+        )
 
         # Get keyword search results
         async with get_db_connection() as conn:

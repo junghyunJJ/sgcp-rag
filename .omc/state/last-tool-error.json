@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"ls /Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docs/2.graph_execution_flow_pub* 2>&1\",\"description\":\"Confirm _pub variants are deleted\"}",
+  "error": "Exit code 1\n(eval):1: no matches found: /Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/docs/2.graph_execution_flow_pub*",
+  "timestamp": "2026-03-25T08:18:04.553Z",
+  "retry_count": 1
+}

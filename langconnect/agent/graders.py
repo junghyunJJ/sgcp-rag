@@ -4,6 +4,8 @@ Pydantic models used with LLM structured output to get binary yes/no
 decisions for document relevance, hallucination detection, and answer quality.
 """
 
+from typing import Literal
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -18,7 +20,7 @@ from langconnect.agent.prompts import (
 class GradeDocumentRelevance(BaseModel):
     """Binary score for document relevance to a question."""
 
-    binary_score: str = Field(
+    binary_score: Literal["yes", "no"] = Field(
         description="Document relevance: 'yes' or 'no'"
     )
 
@@ -26,7 +28,7 @@ class GradeDocumentRelevance(BaseModel):
 class GradeHallucination(BaseModel):
     """Binary score for whether generation is grounded in facts."""
 
-    binary_score: str = Field(
+    binary_score: Literal["yes", "no"] = Field(
         description="Answer grounded in facts: 'yes' or 'no'"
     )
 
@@ -34,7 +36,7 @@ class GradeHallucination(BaseModel):
 class GradeAnswer(BaseModel):
     """Binary score for whether answer addresses the question."""
 
-    binary_score: str = Field(
+    binary_score: Literal["yes", "no"] = Field(
         description="Answer addresses question: 'yes' or 'no'"
     )
 

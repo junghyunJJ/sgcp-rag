@@ -598,7 +598,6 @@ async def add_documents_from_files(
                 "source": path.name,  # Use original filename as source
                 "created_at": datetime.now().isoformat(),
                 "filename": path.name,
-                "file_path": str(path),
                 "mime_type": mime_type,
             }
             metadatas.append(metadata)
@@ -821,11 +820,11 @@ async def multi_query(question: str) -> str:
     Returns:
         str: JSON array string containing 3-5 alternative queries generated from the original question.
              Format: ["query1", "query2", "query3", ...]
-             If Google API key is not configured, returns an error message.
+             If OpenAI API key is not configured, returns an error message.
              If query generation fails, returns an error message with details.
     """
-    if not GOOGLE_API_KEY:
-        return json.dumps({"error": "Google API key not configured"})
+    if not OPENAI_API_KEY:
+        return json.dumps({"error": "OpenAI API key not configured"})
 
     try:
         # Initialize LLM

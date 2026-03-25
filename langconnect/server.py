@@ -8,12 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langconnect.api import agentic_router, collections_router, documents_router
 from langconnect.config import ALLOWED_ORIGINS
 from langconnect.database.collections import CollectionsManager
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from langconnect.database.connection import close_db_pool, close_engine
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +22,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("App is starting up. Creating background worker...")
     await CollectionsManager.setup()
     yield
-    logger.info("App is shutting down. Stopping background worker...")
+    logger.info("App is shutting down. Cleaning up resources...")
+    await close_db_pool()
+    close_engine()
 
 
 APP = FastAPI(

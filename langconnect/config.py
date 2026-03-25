@@ -1,32 +1,41 @@
 import json
+import logging
 
 from langchain_core.embeddings import Embeddings
 from starlette.config import Config
+
+logger = logging.getLogger(__name__)
 
 env = Config()
 
 IS_TESTING = env("IS_TESTING", cast=str, default="").lower() == "true"
 
+_embeddings: Embeddings | None = None
+
 
 def get_embeddings() -> Embeddings:
-    """Get the embeddings instance based on the environment."""
-    # from langchain_openai import OpenAIEmbeddings
+    """Get the embeddings instance (lazy singleton)."""
+    global _embeddings
+    if _embeddings is not None:
+        return _embeddings
 
-    # return OpenAIEmbeddings(model="text-embedding-3-small")
+    # from langchain_openai import OpenAIEmbeddings
+    # _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
     from langchain_huggingface import HuggingFaceEmbeddings
 
     model_name = "neuml/pubmedbert-base-embeddings"
-    model_kwargs = {'device': 'cpu'}
-    encode_kwargs = {'normalize_embeddings': True}
-    return HuggingFaceEmbeddings(
+    model_kwargs = {"device": "cpu"}
+    encode_kwargs = {"normalize_embeddings": True}
+    _embeddings = HuggingFaceEmbeddings(
         model_name=model_name,
         model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs
+        encode_kwargs=encode_kwargs,
     )
+    logger.info("Embedding model loaded: %s", model_name)
+    return _embeddings
 
 
-DEFAULT_EMBEDDINGS = get_embeddings()
 DEFAULT_COLLECTION_NAME = "default_collection"
 
 
@@ -42,7 +51,7 @@ ALLOW_ORIGINS_JSON = env("ALLOW_ORIGINS", cast=str, default="")
 
 if ALLOW_ORIGINS_JSON:
     ALLOWED_ORIGINS = json.loads(ALLOW_ORIGINS_JSON.strip())
-    print(f"ALLOW_ORIGINS environment variable set to: {ALLOW_ORIGINS_JSON}")
+    logger.info("ALLOW_ORIGINS set to: %s", ALLOW_ORIGINS_JSON)
 else:
-    ALLOWED_ORIGINS = "http://localhost:3000"
-    print("ALLOW_ORIGINS environment variable not set.")
+    ALLOWED_ORIGINS = ["http://localhost:3000"]
+    logger.info("ALLOW_ORIGINS not set, defaulting to %s", ALLOWED_ORIGINS)

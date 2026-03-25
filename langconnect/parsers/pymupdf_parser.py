@@ -81,12 +81,5 @@ class PyMuPDF4LLMParser(BaseBlobParser):
             
         except Exception as e:
             logger.error(f"Error parsing PDF with pymupdf4llm: {e}")
-            # Yield an empty document on error to maintain consistency
-            yield Document(
-                page_content="",
-                metadata={
-                    "source": blob.source or "pymupdf4llm",
-                    "error": str(e),
-                    "parser": "PyMuPDF4LLMParser",
-                }
-            )
+            # Do not yield an empty document — let the caller handle the absence
+            return

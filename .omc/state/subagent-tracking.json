@@ -1,0 +1,44 @@
+{
+  "agents": [
+    {
+      "agent_id": "a2ffdbe02991b786a",
+      "agent_type": "oh-my-claudecode:architect",
+      "started_at": "2026-03-25T08:08:40.165Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-25T08:12:10.986Z",
+      "duration_ms": 210821
+    },
+    {
+      "agent_id": "a82c8eacf25bcb4a5",
+      "agent_type": "oh-my-claudecode:code-reviewer",
+      "started_at": "2026-03-25T08:08:49.098Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-25T08:12:40.901Z",
+      "duration_ms": 231803
+    },
+    {
+      "agent_id": "a626795d3c5727913",
+      "agent_type": "mermaid-diagram-publisher",
+      "started_at": "2026-03-25T08:10:50.346Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-25T08:13:38.904Z",
+      "duration_ms": 168558
+    },
+    {
+      "agent_id": "a521377fb225a76be",
+      "agent_type": "mermaid-diagram-publisher",
+      "started_at": "2026-03-25T08:17:15.079Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-25T08:18:37.244Z",
+      "duration_ms": 82165
+    }
+  ],
+  "total_spawned": 4,
+  "total_completed": 4,
+  "total_failed": 0,
+  "last_updated": "2026-03-25T08:18:37.347Z"
+}

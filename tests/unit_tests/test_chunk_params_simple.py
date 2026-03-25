@@ -1,6 +1,7 @@
 """Simple tests for chunk parameters without database dependency."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import UploadFile
@@ -12,14 +13,11 @@ from langconnect.services.document_processor import process_document
 @pytest.mark.asyncio
 async def test_documents_create_passes_chunk_params():
     """Test that the API endpoint correctly passes chunk parameters to process_document."""
-    # Mock dependencies
-    mock_user = MagicMock()
-    mock_user.identity = "test_user"
-
     # Create mock file
     file_content = b"Test content for chunking"
     mock_file = MagicMock(spec=UploadFile)
     mock_file.read = AsyncMock(return_value=file_content)
+    mock_file.seek = AsyncMock()
     mock_file.filename = "test.txt"
     mock_file.content_type = "text/plain"
 
@@ -38,8 +36,7 @@ async def test_documents_create_passes_chunk_params():
 
             # Call the API endpoint with custom chunk parameters
             result = await documents_create(
-                user=mock_user,
-                collection_id="test-collection-id",
+                collection_id=UUID("12345678-1234-5678-1234-567812345678"),
                 files=[mock_file],
                 metadatas_json=None,
                 chunk_size=500,
@@ -116,11 +113,9 @@ async def test_chunk_overlap_behavior():
 @pytest.mark.asyncio
 async def test_api_default_chunk_params():
     """Test that API uses default chunk parameters when not provided."""
-    mock_user = MagicMock()
-    mock_user.identity = "test_user"
-
     mock_file = MagicMock(spec=UploadFile)
     mock_file.read = AsyncMock(return_value=b"Test content")
+    mock_file.seek = AsyncMock()
     mock_file.filename = "test.txt"
     mock_file.content_type = "text/plain"
 
@@ -136,8 +131,7 @@ async def test_api_default_chunk_params():
             # Call without specifying chunk parameters
             # This simulates form data without chunk_size and chunk_overlap
             await documents_create(
-                user=mock_user,
-                collection_id="test-id",
+                collection_id=UUID("12345678-1234-5678-1234-567812345678"),
                 files=[mock_file],
                 metadatas_json=None,
                 chunk_size=1000,  # Default value from Form(1000)

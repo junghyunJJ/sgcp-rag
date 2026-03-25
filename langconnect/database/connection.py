@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 _pool: asyncpg.Pool | None = None
+_engine: Engine | None = None
 
 
 async def get_db_pool() -> asyncpg.Pool:
@@ -57,10 +58,24 @@ def get_vectorstore_engine(
     password: str = config.POSTGRES_PASSWORD,
     dbname: str = config.POSTGRES_DB,
 ) -> Engine:
-    """Creates and returns a sync SQLAlchemy engine for PostgreSQL."""
-    connection_string = f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
-    engine = create_engine(connection_string)
-    return engine
+    """Creates and returns a cached sync SQLAlchemy engine for PostgreSQL."""
+    global _engine
+    if _engine is None:
+        connection_string = (
+            f"postgresql+psycopg://{user}:{password}@{host}:{port}/{dbname}"
+        )
+        _engine = create_engine(connection_string, pool_size=5, max_overflow=10)
+        logger.info("SQLAlchemy engine created (singleton).")
+    return _engine
+
+
+def close_engine():
+    """Dispose the cached SQLAlchemy engine."""
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+        logger.info("SQLAlchemy engine disposed.")
 
 
 DBConnection = Union[sqlalchemy.engine.Engine, str]
@@ -68,13 +83,15 @@ DBConnection = Union[sqlalchemy.engine.Engine, str]
 
 def get_vectorstore(
     collection_name: str = config.DEFAULT_COLLECTION_NAME,
-    embeddings: Embeddings = config.DEFAULT_EMBEDDINGS,
+    embeddings: Optional[Embeddings] = None,
     engine: Optional[Union[DBConnection, Engine, AsyncEngine]] = None,
     collection_metadata: Optional[dict[str, Any]] = None,
 ) -> PGVector:
     """Initializes and returns a PGVector store for a specific collection,
     using an existing engine or creating one from connection parameters.
     """
+    if embeddings is None:
+        embeddings = config.get_embeddings()
     if engine is None:
         engine = get_vectorstore_engine()
 
