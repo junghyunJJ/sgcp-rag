@@ -1,44 +1,44 @@
 {
   "agents": [
     {
-      "agent_id": "a2ffdbe02991b786a",
-      "agent_type": "oh-my-claudecode:architect",
-      "started_at": "2026-03-25T08:08:40.165Z",
+      "agent_id": "aa11fe6b4ba2a0017",
+      "agent_type": "Explore",
+      "started_at": "2026-03-26T08:39:16.021Z",
       "parent_mode": "none",
       "status": "completed",
-      "completed_at": "2026-03-25T08:12:10.986Z",
-      "duration_ms": 210821
+      "completed_at": "2026-03-26T08:40:34.351Z",
+      "duration_ms": 78330
     },
     {
-      "agent_id": "a82c8eacf25bcb4a5",
-      "agent_type": "oh-my-claudecode:code-reviewer",
-      "started_at": "2026-03-25T08:08:49.098Z",
+      "agent_id": "a1343c0c50c0adb76",
+      "agent_type": "Explore",
+      "started_at": "2026-03-26T08:39:19.419Z",
       "parent_mode": "none",
       "status": "completed",
-      "completed_at": "2026-03-25T08:12:40.901Z",
-      "duration_ms": 231803
+      "completed_at": "2026-03-26T08:40:36.580Z",
+      "duration_ms": 77161
     },
     {
-      "agent_id": "a626795d3c5727913",
-      "agent_type": "mermaid-diagram-publisher",
-      "started_at": "2026-03-25T08:10:50.346Z",
+      "agent_id": "a17b0729c72a4df6d",
+      "agent_type": "oh-my-claudecode:executor",
+      "started_at": "2026-03-26T08:48:13.587Z",
       "parent_mode": "none",
       "status": "completed",
-      "completed_at": "2026-03-25T08:13:38.904Z",
-      "duration_ms": 168558
+      "completed_at": "2026-03-26T08:51:15.157Z",
+      "duration_ms": 181570
     },
     {
-      "agent_id": "a521377fb225a76be",
-      "agent_type": "mermaid-diagram-publisher",
-      "started_at": "2026-03-25T08:17:15.079Z",
+      "agent_id": "ad8c8b3cb1d848bdf",
+      "agent_type": "Explore",
+      "started_at": "2026-03-26T09:03:32.231Z",
       "parent_mode": "none",
       "status": "completed",
-      "completed_at": "2026-03-25T08:18:37.244Z",
-      "duration_ms": 82165
+      "completed_at": "2026-03-26T09:06:04.507Z",
+      "duration_ms": 152276
     }
   ],
   "total_spawned": 4,
   "total_completed": 4,
   "total_failed": 0,
-  "last_updated": "2026-03-25T08:18:37.347Z"
+  "last_updated": "2026-03-26T09:06:04.611Z"
 }

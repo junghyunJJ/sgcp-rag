@@ -49,7 +49,6 @@ def _make_state(**overrides) -> AgentState:
     base = {
         "question": "What is LangGraph?",
         "collection_id": "test-collection-uuid",
-        "user_id": None,
         "search_type": "hybrid",
         "search_limit": 5,
         "search_filter": None,

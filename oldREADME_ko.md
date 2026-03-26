@@ -111,6 +111,8 @@ cp .env.example .env
 # 자격 증명으로 .env 편집 후:
 make build   # Docker 이미지 빌드
 make up      # 모든 서비스 시작
+make mcp
+
 ```
 
 MCP 설정

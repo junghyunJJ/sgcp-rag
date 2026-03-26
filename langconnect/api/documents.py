@@ -30,10 +30,7 @@ async def documents_bulk_delete(
     delete_request: DocumentDelete,
 ):
     """Deletes multiple documents from a collection by their IDs or file IDs."""
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=None,
-    )
+    collection = Collection(collection_id=str(collection_id))
 
     if not delete_request.document_ids and not delete_request.file_ids:
         raise HTTPException(
@@ -150,10 +147,7 @@ async def documents_create(
     # If some files failed but others succeeded, proceed with adding successful ones
     # but maybe inform the user about the failures.
     try:
-        collection = Collection(
-            collection_id=str(collection_id),
-            user_id=None,
-        )
+        collection = Collection(collection_id=str(collection_id))
         added_ids = await collection.upsert(docs_to_index)
         if not added_ids:
             # This might indicate a problem with the vector store itself
@@ -202,10 +196,7 @@ async def documents_list(
     offset: int = Query(0, ge=0),
 ):
     """Lists documents within a specific collection."""
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=None,
-    )
+    collection = Collection(collection_id=str(collection_id))
     return await collection.list(limit=limit, offset=offset)
 
 
@@ -226,10 +217,7 @@ async def documents_delete(
         document_id: The ID to delete by (either document ID or file ID)
         delete_by: Specifies whether to delete by 'document_id' (single chunk) or 'file_id' (all chunks from file)
     """
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=None,
-    )
+    collection = Collection(collection_id=str(collection_id))
 
     if delete_by == "file_id":
         success = await collection.delete(file_id=document_id)
@@ -253,10 +241,7 @@ async def documents_search(
     if not search_query.query:
         raise HTTPException(status_code=400, detail="Search query cannot be empty")
 
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=None,
-    )
+    collection = Collection(collection_id=str(collection_id))
 
     results = await collection.search(
         search_query.query,

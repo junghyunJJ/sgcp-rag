@@ -16,7 +16,7 @@ async def collections_create(
     collection_data: CollectionCreate,
 ):
     """Creates a new PGVector collection by name with optional metadata."""
-    collection_info = await CollectionsManager(None).create(
+    collection_info = await CollectionsManager().create(
         collection_data.name, collection_data.metadata
     )
     if not collection_info:
@@ -28,7 +28,7 @@ async def collections_create(
 async def collections_list():
     """Lists all available PGVector collections (name and UUID)."""
     return [
-        CollectionResponse(**c) for c in await CollectionsManager(None).list()
+        CollectionResponse(**c) for c in await CollectionsManager().list()
     ]
 
 
@@ -37,7 +37,7 @@ async def collections_get(
     collection_id: UUID,
 ):
     """Retrieves details (name and UUID) of a specific PGVector collection."""
-    collection = await CollectionsManager(None).get(str(collection_id))
+    collection = await CollectionsManager().get(str(collection_id))
     if not collection:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -51,7 +51,7 @@ async def collections_delete(
     collection_id: UUID,
 ):
     """Deletes a specific PGVector collection by name."""
-    await CollectionsManager(None).delete(str(collection_id))
+    await CollectionsManager().delete(str(collection_id))
     return None
 
 
@@ -61,7 +61,7 @@ async def collections_update(
     collection_data: CollectionUpdate,
 ):
     """Updates a specific PGVector collection's name and/or metadata."""
-    updated_collection = await CollectionsManager(None).update(
+    updated_collection = await CollectionsManager().update(
         str(collection_id),
         name=collection_data.name,
         metadata=collection_data.metadata,

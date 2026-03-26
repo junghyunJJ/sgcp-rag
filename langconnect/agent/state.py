@@ -12,7 +12,6 @@ class AgentState(TypedDict):
 
     question: str
     collection_id: str
-    user_id: str | None
     search_type: Literal["semantic", "keyword", "hybrid"]
     search_limit: int
     search_filter: dict[str, Any] | None

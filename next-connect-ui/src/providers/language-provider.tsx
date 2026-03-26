@@ -16,25 +16,13 @@ interface LanguageProviderProps {
 }
 
 export function LanguageProvider({ children }: LanguageProviderProps) {
-  const [language, setLanguageState] = useState<Language>('en')
-  const [isLoaded, setIsLoaded] = useState(false)
+  const language: Language = 'en'
+  const setLanguage = (_: Language) => {}
 
   useEffect(() => {
-    const storedLanguage = localStorage.getItem('language') as Language
-    if (storedLanguage && (storedLanguage === 'en' || storedLanguage === 'ko')) {
-      setLanguageState(storedLanguage)
-    }
-    setIsLoaded(true)
+    // Clear any previously stored language preference
+    localStorage.removeItem('language')
   }, [])
-
-  const setLanguage = (newLanguage: Language) => {
-    setLanguageState(newLanguage)
-    localStorage.setItem('language', newLanguage)
-  }
-
-  if (!isLoaded) {
-    return null
-  }
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage }}>

@@ -35,7 +35,6 @@ async def agentic_search(
     result = await run_agentic_search(
         question=query.question,
         collection_id=str(collection_id),
-        user_id=None,
         search_type=query.search_type,
         search_limit=query.search_limit,
         search_filter=query.filter,

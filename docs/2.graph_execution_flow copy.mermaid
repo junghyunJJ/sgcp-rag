@@ -12,26 +12,26 @@
 flowchart TD
     START(["START"])
 
-    RETRIEVE["<b>Retrieve</b><br/>semantic / keyword / hybrid search"]
+    RETRIEVE["<b>Retrieve</b><br/>document search (semantic/ keyword/ hybrid)<br/>"]
 
-    GRADE_DOCS["<b>🤖 Relevance Check</b><br/>LLM scores document relevance"]
+    GRADE_DOCS[["<b>Relevance Check</b><br/>LLM evaluates relevance of each document<br/>"]]
 
     ROUTE_GRADE{"<b>Routing</b>"}
 
-    REWRITE["<b>🤖 Rewrite Query</b><br/>LLM optimizes query for retrieval"]
+    REWRITE[["<b>Rewrite query</b><br/>LLM query rewriting<br/>vector search optimization<br/>"]]
 
-    GENERATE["<b>🤖 Generate</b><br/>LLM generates answer from context"]
+    GENERATE[["<b>Generate</b><br/>based on relevant document context<br/>LLM answer generation<br/>"]]
 
-    GRADE_GEN["<b>🤖 Grade Generation</b><br/>hallucination + quality check"]
+    GRADE_GEN[["<b>Grade generation</b><br/>① Hallucination Check<br/>② Answer Quality Check<br/>"]]
 
     ROUTE_GEN{"<b>Routing</b>"}
 
     MAXCHECK_GRADE{"rewrite_count<br/>< max_rewrites?"}
     MAXCHECK_GEN{"rewrite_count<br/>< max_rewrites?"}
 
-    FORCED_GEN["<b>Forced Generation</b><br/>no relevant docs, generate anyway"]
+    FORCED_GEN["<b>Forced generation</b><br/>(max_rewrites reached,<br/>no relevant docs)"]
 
-    FORCED_END["<b>Forced End</b><br/>quality still insufficient"]
+    FORCED_END["<b>Forced termination</b><br/>(max_rewrites reached,<br/>quality insufficient)"]
 
     END_OK(["END<br/>Success"])
     END_FORCED(["END<br/>Forced termination"])
@@ -57,15 +57,15 @@ flowchart TD
     MAXCHECK_GEN -->|"No (limit reached)"| FORCED_END
     FORCED_END --> END_FORCED
 
-    REWRITE -.->|"Loop back (re-run retrieve)"| RETRIEVE
+    REWRITE -->|"Loop back (re-run retrieve)"| RETRIEVE
 
-    classDef module fill:#ffffff,stroke:#c9d1d9,stroke-width:2px,rx:12,ry:12,color:#1f2933
-    classDef decision fill:#e3f2fd,stroke:#90caf9,stroke-width:2px,rx:12,ry:12
-    classDef llm fill:#e8def8,stroke:#7e57c2,stroke-width:2px,rx:12,ry:12,color:#1f2933
+    classDef module fill:#ffffff,stroke:#c9d1d9,stroke-width:1.5px,rx:12,ry:12,color:#1f2933
+    classDef decision fill:#e3f2fd,stroke:#90caf9,stroke-width:1.5px,rx:12,ry:12
+    classDef agent fill:#f4f6f8,stroke:#9aa4b2,stroke-width:2px,rx:18,ry:18
     classDef tool fill:#eceff1,stroke:#b0bec5,stroke-width:1.2px,rx:10,ry:10
     classDef terminal fill:#263238,color:#ffffff,stroke:#263238,stroke-width:2px,rx:15,ry:15
 
     class START,END_OK,END_FORCED terminal
-    class GRADE_DOCS,REWRITE,GENERATE,GRADE_GEN llm
+    class GRADE_DOCS,REWRITE,GENERATE,GRADE_GEN agent
     class RETRIEVE,FORCED_GEN,FORCED_END module
     class ROUTE_GRADE,ROUTE_GEN,MAXCHECK_GRADE,MAXCHECK_GEN decision

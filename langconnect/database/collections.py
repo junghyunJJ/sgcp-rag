@@ -8,6 +8,8 @@ The current implementations are based on langchain-postgres PGVector class.
 Replace with your own implementation or favorite vectorstore if needed.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -36,10 +38,6 @@ class CollectionDetails(TypedDict):
 class CollectionsManager:
     """Use to create, delete, update, and list document collections."""
 
-    def __init__(self, user_id: str | None) -> None:
-        """Initialize the collection manager with an optional user ID."""
-        self.user_id = user_id
-
     @staticmethod
     async def setup() -> None:
         """Set up method should run any necessary initialization code.
@@ -53,38 +51,21 @@ class CollectionsManager:
     async def list(
         self,
     ) -> list[CollectionDetails]:
-        """List all collections, optionally filtered by user, ordered by logical name."""
+        """List all collections ordered by logical name."""
         async with get_db_connection() as conn:
-            if self.user_id:
-                records = await conn.fetch(
-                    """
-                    SELECT 
-                        c.uuid, 
-                        c.cmetadata,
-                        COUNT(DISTINCT e.cmetadata->>'file_id') AS document_count,
-                        COUNT(e.id) AS chunk_count
-                    FROM langchain_pg_collection c
-                    LEFT JOIN langchain_pg_embedding e ON c.uuid = e.collection_id
-                    WHERE c.cmetadata->>'owner_id' = $1
-                    GROUP BY c.uuid
-                    ORDER BY c.cmetadata->>'name';
-                    """,
-                    self.user_id,
-                )
-            else:
-                records = await conn.fetch(
-                    """
-                    SELECT 
-                        c.uuid, 
-                        c.cmetadata,
-                        COUNT(DISTINCT e.cmetadata->>'file_id') AS document_count,
-                        COUNT(e.id) AS chunk_count
-                    FROM langchain_pg_collection c
-                    LEFT JOIN langchain_pg_embedding e ON c.uuid = e.collection_id
-                    GROUP BY c.uuid
-                    ORDER BY c.cmetadata->>'name';
-                    """
-                )
+            records = await conn.fetch(
+                """
+                SELECT
+                    c.uuid,
+                    c.cmetadata,
+                    COUNT(DISTINCT e.cmetadata->>'file_id') AS document_count,
+                    COUNT(e.id) AS chunk_count
+                FROM langchain_pg_collection c
+                LEFT JOIN langchain_pg_embedding e ON c.uuid = e.collection_id
+                GROUP BY c.uuid
+                ORDER BY c.cmetadata->>'name';
+                """
+            )
 
         result: list[CollectionDetails] = []
         for r in records:
@@ -105,28 +86,16 @@ class CollectionsManager:
         self,
         collection_id: str,
     ) -> CollectionDetails | None:
-        """Fetch a single collection by UUID, optionally checking ownership."""
+        """Fetch a single collection by UUID."""
         async with get_db_connection() as conn:
-            if self.user_id:
-                rec = await conn.fetchrow(
-                    """
-                    SELECT uuid, name, cmetadata
-                      FROM langchain_pg_collection
-                     WHERE uuid = $1
-                       AND cmetadata->>'owner_id' = $2;
-                    """,
-                    collection_id,
-                    self.user_id,
-                )
-            else:
-                rec = await conn.fetchrow(
-                    """
-                    SELECT uuid, name, cmetadata
-                      FROM langchain_pg_collection
-                     WHERE uuid = $1;
-                    """,
-                    collection_id,
-                )
+            rec = await conn.fetchrow(
+                """
+                SELECT uuid, name, cmetadata
+                  FROM langchain_pg_collection
+                 WHERE uuid = $1;
+                """,
+                collection_id,
+            )
 
         if not rec:
             return None
@@ -156,8 +125,6 @@ class CollectionsManager:
         """
         # check for existing name
         metadata = metadata.copy() if metadata else {}
-        if self.user_id:
-            metadata["owner_id"] = self.user_id
         metadata["name"] = collection_name
 
         # For now assign a table identifier safe for SQL naming
@@ -169,26 +136,14 @@ class CollectionsManager:
 
         # Fetch the newly created table.
         async with get_db_connection() as conn:
-            if self.user_id:
-                rec = await conn.fetchrow(
-                    """
-                    SELECT uuid, name, cmetadata
-                      FROM langchain_pg_collection
-                     WHERE name = $1
-                       AND cmetadata->>'owner_id' = $2;
-                    """,
-                    table_id,
-                    self.user_id,
-                )
-            else:
-                rec = await conn.fetchrow(
-                    """
-                    SELECT uuid, name, cmetadata
-                      FROM langchain_pg_collection
-                     WHERE name = $1;
-                    """,
-                    table_id,
-                )
+            rec = await conn.fetchrow(
+                """
+                SELECT uuid, name, cmetadata
+                  FROM langchain_pg_collection
+                 WHERE name = $1;
+                """,
+                table_id,
+            )
         if not rec:
             return None
         metadata = json.loads(rec["cmetadata"])
@@ -220,10 +175,7 @@ class CollectionsManager:
 
         # Case 1 & 2: metadata supplied (with or without new name)
         if metadata is not None:
-            # merge in owner_id (if exists) + optional new name
             merged = metadata.copy()
-            if self.user_id:
-                merged["owner_id"] = self.user_id
 
             if name is not None:
                 merged["name"] = name
@@ -240,68 +192,35 @@ class CollectionsManager:
             metadata_json = json.dumps(merged)
 
             async with get_db_connection() as conn:
-                if self.user_id:
-                    rec = await conn.fetchrow(
-                        """
-                        UPDATE langchain_pg_collection
-                           SET cmetadata = $1::jsonb
-                         WHERE uuid = $2
-                           AND cmetadata->>'owner_id' = $3
-                        RETURNING uuid, cmetadata;
-                        """,
-                        metadata_json,
-                        collection_id,
-                        self.user_id,
-                    )
-                else:
-                    rec = await conn.fetchrow(
-                        """
-                        UPDATE langchain_pg_collection
-                           SET cmetadata = $1::jsonb
-                         WHERE uuid = $2
-                        RETURNING uuid, cmetadata;
-                        """,
-                        metadata_json,
-                        collection_id,
-                    )
+                rec = await conn.fetchrow(
+                    """
+                    UPDATE langchain_pg_collection
+                       SET cmetadata = $1::jsonb
+                     WHERE uuid = $2
+                    RETURNING uuid, cmetadata;
+                    """,
+                    metadata_json,
+                    collection_id,
+                )
 
         # Case 3: name only
         else:  # metadata is None but name is not None
             async with get_db_connection() as conn:
-                if self.user_id:
-                    rec = await conn.fetchrow(
-                        """
-                        UPDATE langchain_pg_collection
-                           SET cmetadata = jsonb_set(
-                                 cmetadata::jsonb,
-                                 '{name}',
-                                 to_jsonb($1::text),
-                                 true
-                               )
-                         WHERE uuid = $2
-                           AND cmetadata->>'owner_id' = $3
-                        RETURNING uuid, cmetadata;
-                        """,
-                        name,
-                        collection_id,
-                        self.user_id,
-                    )
-                else:
-                    rec = await conn.fetchrow(
-                        """
-                        UPDATE langchain_pg_collection
-                           SET cmetadata = jsonb_set(
-                                 cmetadata::jsonb,
-                                 '{name}',
-                                 to_jsonb($1::text),
-                                 true
-                               )
-                         WHERE uuid = $2
-                        RETURNING uuid, cmetadata;
-                        """,
-                        name,
-                        collection_id,
-                    )
+                rec = await conn.fetchrow(
+                    """
+                    UPDATE langchain_pg_collection
+                       SET cmetadata = jsonb_set(
+                             cmetadata::jsonb,
+                             '{name}',
+                             to_jsonb($1::text),
+                             true
+                           )
+                     WHERE uuid = $2
+                    RETURNING uuid, cmetadata;
+                    """,
+                    name,
+                    collection_id,
+                )
 
         if not rec:
             raise HTTPException(
@@ -327,24 +246,13 @@ class CollectionsManager:
         Raises 404 if no such collection.
         """
         async with get_db_connection() as conn:
-            if self.user_id:
-                result = await conn.execute(
-                    """
-                    DELETE FROM langchain_pg_collection
-                     WHERE uuid = $1
-                       AND cmetadata->>'owner_id' = $2;
-                    """,
-                    collection_id,
-                    self.user_id,
-                )
-            else:
-                result = await conn.execute(
-                    """
-                    DELETE FROM langchain_pg_collection
-                     WHERE uuid = $1;
-                    """,
-                    collection_id,
-                )
+            result = await conn.execute(
+                """
+                DELETE FROM langchain_pg_collection
+                 WHERE uuid = $1;
+                """,
+                collection_id,
+            )
         return int(result.split()[-1])
 
 
@@ -354,14 +262,13 @@ class Collection:
     Use to add, delete, list, and search documents to a given collection.
     """
 
-    def __init__(self, collection_id: str, user_id: str | None) -> None:
-        """Initialize the collection by collection ID with optional user ID."""
+    def __init__(self, collection_id: str) -> None:
+        """Initialize the collection by collection ID."""
         self.collection_id = collection_id
-        self.user_id = user_id
 
     async def _get_details_or_raise(self) -> dict[str, Any]:
         """Get collection details if it exists, otherwise raise an error."""
-        details = await CollectionsManager(self.user_id).get(self.collection_id)
+        details = await CollectionsManager().get(self.collection_id)
         if not details:
             raise HTTPException(status_code=404, detail="Collection not found")
         return details
@@ -388,68 +295,34 @@ class Collection:
         async with get_db_connection() as conn:
             if document_id:
                 # Delete specific document by ID
-                if self.user_id:
-                    delete_sql = """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpc.cmetadata->>'owner_id' = $2
-                          AND lpe.id = $3
+                result = await conn.execute(
                     """
-                    result = await conn.execute(
-                        delete_sql,
-                        self.collection_id,
-                        self.user_id,
-                        document_id,
-                    )
-                else:
-                    delete_sql = """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpe.id = $2
-                    """
-                    result = await conn.execute(
-                        delete_sql,
-                        self.collection_id,
-                        document_id,
-                    )
+                    DELETE FROM langchain_pg_embedding AS lpe
+                    USING langchain_pg_collection AS lpc
+                    WHERE lpe.collection_id = lpc.uuid
+                      AND lpc.uuid = $1
+                      AND lpe.id = $2
+                    """,
+                    self.collection_id,
+                    document_id,
+                )
                 deleted_count = int(result.split()[-1])
                 logger.info(
                     f"Deleted {deleted_count} document with id {document_id!r}."
                 )
             elif file_id:
                 # Delete all documents from a file
-                if self.user_id:
-                    delete_sql = """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id   = lpc.uuid
-                          AND lpc.uuid             = $1
-                          AND lpc.cmetadata->>'owner_id' = $2
-                          AND lpe.cmetadata->>'file_id'   = $3
+                result = await conn.execute(
                     """
-                    result = await conn.execute(
-                        delete_sql,
-                        self.collection_id,
-                        self.user_id,
-                        file_id,
-                    )
-                else:
-                    delete_sql = """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id   = lpc.uuid
-                          AND lpc.uuid             = $1
-                          AND lpe.cmetadata->>'file_id'   = $2
-                    """
-                    result = await conn.execute(
-                        delete_sql,
-                        self.collection_id,
-                        file_id,
-                    )
+                    DELETE FROM langchain_pg_embedding AS lpe
+                    USING langchain_pg_collection AS lpc
+                    WHERE lpe.collection_id = lpc.uuid
+                      AND lpc.uuid = $1
+                      AND lpe.cmetadata->>'file_id' = $2
+                    """,
+                    self.collection_id,
+                    file_id,
+                )
                 deleted_count = int(result.split()[-1])
                 logger.info(f"Deleted {deleted_count} embeddings for file {file_id!r}.")
             else:
@@ -473,61 +346,31 @@ class Collection:
         deleted_count = 0
         async with get_db_connection() as conn:
             if document_ids:
-                if self.user_id:
-                    result = await conn.execute(
-                        """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpc.cmetadata->>'owner_id' = $2
-                          AND lpe.id = ANY($3::text[])
-                        """,
-                        self.collection_id,
-                        self.user_id,
-                        document_ids,
-                    )
-                else:
-                    result = await conn.execute(
-                        """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpe.id = ANY($2::text[])
-                        """,
-                        self.collection_id,
-                        document_ids,
-                    )
+                result = await conn.execute(
+                    """
+                    DELETE FROM langchain_pg_embedding AS lpe
+                    USING langchain_pg_collection AS lpc
+                    WHERE lpe.collection_id = lpc.uuid
+                      AND lpc.uuid = $1
+                      AND lpe.id = ANY($2::text[])
+                    """,
+                    self.collection_id,
+                    document_ids,
+                )
                 deleted_count += int(result.split()[-1])
 
             if file_ids:
-                if self.user_id:
-                    result = await conn.execute(
-                        """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpc.cmetadata->>'owner_id' = $2
-                          AND lpe.cmetadata->>'file_id' = ANY($3::text[])
-                        """,
-                        self.collection_id,
-                        self.user_id,
-                        file_ids,
-                    )
-                else:
-                    result = await conn.execute(
-                        """
-                        DELETE FROM langchain_pg_embedding AS lpe
-                        USING langchain_pg_collection AS lpc
-                        WHERE lpe.collection_id = lpc.uuid
-                          AND lpc.uuid = $1
-                          AND lpe.cmetadata->>'file_id' = ANY($2::text[])
-                        """,
-                        self.collection_id,
-                        file_ids,
-                    )
+                result = await conn.execute(
+                    """
+                    DELETE FROM langchain_pg_embedding AS lpe
+                    USING langchain_pg_collection AS lpc
+                    WHERE lpe.collection_id = lpc.uuid
+                      AND lpc.uuid = $1
+                      AND lpe.cmetadata->>'file_id' = ANY($2::text[])
+                    """,
+                    self.collection_id,
+                    file_ids,
+                )
                 deleted_count += int(result.split()[-1])
         
         return deleted_count
@@ -535,44 +378,23 @@ class Collection:
     async def list(self, *, limit: int = 10, offset: int = 0) -> list[dict[str, Any]]:
         """List all document chunks in this collection."""
         async with get_db_connection() as conn:
-            if self.user_id:
-                rows = await conn.fetch(
-                    """
-                    SELECT lpe.id,
-                           lpe.document,
-                           lpe.cmetadata
-                      FROM langchain_pg_embedding lpe
-                      JOIN langchain_pg_collection lpc
-                        ON lpe.collection_id = lpc.uuid
-                     WHERE lpc.uuid = $1
-                       AND lpc.cmetadata->>'owner_id' = $2
-                     ORDER BY lpe.cmetadata->>'file_id', lpe.id
-                     LIMIT  $3
-                    OFFSET $4
-                    """,
-                    self.collection_id,
-                    self.user_id,
-                    limit,
-                    offset,
-                )
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT lpe.id,
-                           lpe.document,
-                           lpe.cmetadata
-                      FROM langchain_pg_embedding lpe
-                      JOIN langchain_pg_collection lpc
-                        ON lpe.collection_id = lpc.uuid
-                     WHERE lpc.uuid = $1
-                     ORDER BY lpe.cmetadata->>'file_id', lpe.id
-                     LIMIT  $2
-                    OFFSET $3
-                    """,
-                    self.collection_id,
-                    limit,
-                    offset,
-                )
+            rows = await conn.fetch(
+                """
+                SELECT lpe.id,
+                       lpe.document,
+                       lpe.cmetadata
+                  FROM langchain_pg_embedding lpe
+                  JOIN langchain_pg_collection lpc
+                    ON lpe.collection_id = lpc.uuid
+                 WHERE lpc.uuid = $1
+                 ORDER BY lpe.cmetadata->>'file_id', lpe.id
+                 LIMIT  $2
+                OFFSET $3
+                """,
+                self.collection_id,
+                limit,
+                offset,
+            )
 
         docs: list[dict[str, Any]] = []
         for r in rows:
@@ -597,36 +419,20 @@ class Collection:
         return docs
 
     async def get(self, document_id: str) -> dict[str, Any]:
-        """Fetch a single chunk by its UUID, optionally verifying collection ownership."""
+        """Fetch a single chunk by its UUID."""
         async with get_db_connection() as conn:
-            if self.user_id:
-                row = await conn.fetchrow(
-                    """
-                    SELECT e.uuid, e.document, e.cmetadata
-                      FROM langchain_pg_embedding e
-                      JOIN langchain_pg_collection c
-                        ON e.collection_id = c.uuid
-                     WHERE e.uuid = $1
-                       AND c.cmetadata->>'owner_id' = $2
-                       AND c.uuid = $3
-                    """,
-                    document_id,
-                    self.user_id,
-                    self.collection_id,
-                )
-            else:
-                row = await conn.fetchrow(
-                    """
-                    SELECT e.uuid, e.document, e.cmetadata
-                      FROM langchain_pg_embedding e
-                      JOIN langchain_pg_collection c
-                        ON e.collection_id = c.uuid
-                     WHERE e.uuid = $1
-                       AND c.uuid = $2
-                    """,
-                    document_id,
-                    self.collection_id,
-                )
+            row = await conn.fetchrow(
+                """
+                SELECT e.uuid, e.document, e.cmetadata
+                  FROM langchain_pg_embedding e
+                  JOIN langchain_pg_collection c
+                    ON e.collection_id = c.uuid
+                 WHERE e.uuid = $1
+                   AND c.uuid = $2
+                """,
+                document_id,
+                self.collection_id,
+            )
         if not row:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -720,46 +526,24 @@ class Collection:
             search_limit = limit * 3 if filter else limit
 
             async with get_db_connection() as conn:
-                if self.user_id:
-                    rows = await conn.fetch(
-                        """
-                        SELECT e.id as id,
-                               e.document as page_content,
-                               e.cmetadata as metadata,
-                               ts_rank(to_tsvector('english', e.document), 
-                                      plainto_tsquery('english', $1)) as score
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.uuid = $2
-                          AND c.cmetadata->>'owner_id' = $3
-                          AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
-                        ORDER BY score DESC
-                        LIMIT $4
-                        """,
-                        query,
-                        self.collection_id,
-                        self.user_id,
-                        search_limit,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT e.id as id,
-                               e.document as page_content,
-                               e.cmetadata as metadata,
-                               ts_rank(to_tsvector('english', e.document), 
-                                      plainto_tsquery('english', $1)) as score
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.uuid = $2
-                          AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
-                        ORDER BY score DESC
-                        LIMIT $3
-                        """,
-                        query,
-                        self.collection_id,
-                        search_limit,
-                    )
+                rows = await conn.fetch(
+                    """
+                    SELECT e.id as id,
+                           e.document as page_content,
+                           e.cmetadata as metadata,
+                           ts_rank(to_tsvector('english', e.document),
+                                  plainto_tsquery('english', $1)) as score
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.uuid = $2
+                      AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
+                    ORDER BY score DESC
+                    LIMIT $3
+                    """,
+                    query,
+                    self.collection_id,
+                    search_limit,
+                )
 
             formatted_results = [
                 {
@@ -786,46 +570,24 @@ class Collection:
 
         # Get keyword search results
         async with get_db_connection() as conn:
-            if self.user_id:
-                keyword_rows = await conn.fetch(
-                    """
-                        SELECT e.id as id,
-                               e.document as page_content,
-                               e.cmetadata as metadata,
-                               ts_rank(to_tsvector('english', e.document), 
-                                      plainto_tsquery('english', $1)) as score
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.uuid = $2
-                          AND c.cmetadata->>'owner_id' = $3
-                          AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
-                        ORDER BY score DESC
-                        LIMIT $4
-                        """,
-                    query,
-                    self.collection_id,
-                    self.user_id,
-                    limit * 2,
-                )
-            else:
-                keyword_rows = await conn.fetch(
-                    """
-                        SELECT e.id as id,
-                               e.document as page_content,
-                               e.cmetadata as metadata,
-                               ts_rank(to_tsvector('english', e.document), 
-                                      plainto_tsquery('english', $1)) as score
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.uuid = $2
-                          AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
-                        ORDER BY score DESC
-                        LIMIT $3
-                        """,
-                    query,
-                    self.collection_id,
-                    limit * 2,
-                )
+            keyword_rows = await conn.fetch(
+                """
+                SELECT e.id as id,
+                       e.document as page_content,
+                       e.cmetadata as metadata,
+                       ts_rank(to_tsvector('english', e.document),
+                              plainto_tsquery('english', $1)) as score
+                FROM langchain_pg_embedding e
+                JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                WHERE c.uuid = $2
+                  AND to_tsvector('english', e.document) @@ plainto_tsquery('english', $1)
+                ORDER BY score DESC
+                LIMIT $3
+                """,
+                query,
+                self.collection_id,
+                limit * 2,
+            )
 
         # Combine and deduplicate results
         combined_results = {}

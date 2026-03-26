@@ -5,18 +5,6 @@ from tests.unit_tests.fixtures import (
     get_async_test_client,
 )
 
-USER_1_HEADERS = {
-    "Authorization": "Bearer user1",
-}
-
-USER_2_HEADERS = {
-    "Authorization": "Bearer user2",
-}
-
-NO_SUCH_USER_HEADERS = {
-    "Authorization": "Bearer no_such_user",
-}
-
 
 async def test_documents_create_and_list_and_delete_and_search() -> None:
     """Test creating, listing, deleting, and searching documents."""
@@ -25,7 +13,7 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         collection_name = "docs_test_col"
         col_payload = {"name": collection_name, "metadata": {"purpose": "doc-test"}}
         create_col = await client.post(
-            "/collections", json=col_payload, headers=USER_1_HEADERS
+            "/collections", json=col_payload
         )
         assert create_col.status_code == 201
         collection_data = create_col.json()
@@ -38,7 +26,6 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         resp = await client.post(
             f"/collections/{collection_id}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -53,7 +40,7 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
 
         # List documents in collection, default limit 10
         list_resp = await client.get(
-            f"/collections/{collection_id}/documents", headers=USER_1_HEADERS
+            f"/collections/{collection_id}/documents"
         )
         assert list_resp.status_code == 200
         docs = list_resp.json()
@@ -69,7 +56,6 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         search_resp = await client.post(
             f"/collections/{collection_id}/documents/search",
             json=search_payload,
-            headers=USER_1_HEADERS,
         )
         assert search_resp.status_code == 200
         results = search_resp.json()
@@ -90,7 +76,6 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         doc_id = docs[0]["id"]
         del_resp = await client.delete(
             f"/collections/{collection_id}/documents/{doc_id}",
-            headers=USER_1_HEADERS,
         )
         assert del_resp.status_code == 200
         assert del_resp.json() == {"success": True}
@@ -98,7 +83,6 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         # Delete non-existent document gracefully
         del_resp2 = await client.delete(
             f"/collections/{collection_id}/documents/{doc_id}",
-            headers=USER_1_HEADERS,
         )
         # Should still return success True or 200/204; here assume 200
         assert del_resp2.status_code in (200, 204)
@@ -112,7 +96,6 @@ async def test_documents_create_with_invalid_metadata_json() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": col_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -126,7 +109,6 @@ async def test_documents_create_with_invalid_metadata_json() -> None:
             f"/collections/{collection_id}/documents",
             files=files,
             data={"metadatas_json": "not-a-json"},
-            headers=USER_1_HEADERS,
         )
         assert resp.status_code == 400
 
@@ -139,7 +121,6 @@ async def test_documents_search_empty_query() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": col_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -149,7 +130,6 @@ async def test_documents_search_empty_query() -> None:
         resp = await client.post(
             f"/collections/{collection_id}/documents/search",
             json={"query": "", "limit": 3},
-            headers=USER_1_HEADERS,
         )
         assert resp.status_code == 400
         assert "Search query cannot be empty" in resp.json()["detail"]
@@ -161,7 +141,7 @@ async def test_documents_in_nonexistent_collection() -> None:
         # Try listing documents in missing collection
         no_such_collection = "12345678-1234-5678-1234-567812345678"
         response = await client.get(
-            f"/collections/{no_such_collection}/documents", headers=USER_1_HEADERS
+            f"/collections/{no_such_collection}/documents"
         )
         assert response.status_code == 404
 
@@ -171,7 +151,6 @@ async def test_documents_in_nonexistent_collection() -> None:
         upload_resp = await client.post(
             f"/collections/{no_such_collection}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
         assert upload_resp.status_code == 404
         assert "Collection not found" in upload_resp.json()["detail"]
@@ -179,7 +158,6 @@ async def test_documents_in_nonexistent_collection() -> None:
         # Try deleting from missing collection/document
         del_resp = await client.delete(
             f"/collections/{no_such_collection}/documents/abcdef",
-            headers=USER_1_HEADERS,
         )
         assert del_resp.status_code == 404
 
@@ -187,7 +165,6 @@ async def test_documents_in_nonexistent_collection() -> None:
         search_resp = await client.post(
             f"/collections/{no_such_collection}/documents/search",
             json={"query": "foo"},
-            headers=USER_1_HEADERS,
         )
         # Not found or 404
         assert search_resp.status_code == 404
@@ -201,7 +178,6 @@ async def test_documents_create_with_valid_text_file_and_metadata() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -220,7 +196,6 @@ async def test_documents_create_with_valid_text_file_and_metadata() -> None:
             f"/collections/{collection_id}/documents",
             files=files,
             data={"metadatas_json": metadata_json},
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 200
@@ -238,7 +213,6 @@ async def test_documents_create_with_valid_text_file_and_metadata() -> None:
         # Verify document was added by listing documents
         list_response = await client.get(
             f"/collections/{collection_id}/documents",
-            headers=USER_1_HEADERS,
         )
         assert list_response.status_code == 200
         documents = list_response.json()
@@ -259,7 +233,6 @@ async def test_documents_create_with_valid_text_file_without_metadata() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -273,7 +246,6 @@ async def test_documents_create_with_valid_text_file_without_metadata() -> None:
         response = await client.post(
             f"/collections/{collection_id}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 200
@@ -287,7 +259,6 @@ async def test_documents_create_with_valid_text_file_without_metadata() -> None:
         # Verify document was added by listing documents
         list_response = await client.get(
             f"/collections/{collection_id}/documents",
-            headers=USER_1_HEADERS,
         )
         assert list_response.status_code == 200
         documents = list_response.json()
@@ -304,7 +275,6 @@ async def test_documents_create_with_empty_file() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -318,7 +288,6 @@ async def test_documents_create_with_empty_file() -> None:
         response = await client.post(
             f"/collections/{collection_id}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
 
         # Empty files should be rejected with 400 Bad Request
@@ -335,7 +304,6 @@ async def test_documents_create_with_invalid_metadata_format() -> None:
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -353,7 +321,6 @@ async def test_documents_create_with_invalid_metadata_format() -> None:
             f"/collections/{collection_id}/documents",
             files=files,
             data={"metadatas_json": invalid_metadata},
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 400
@@ -364,7 +331,6 @@ async def test_documents_create_with_invalid_metadata_format() -> None:
             f"/collections/{collection_id}/documents",
             files=files,
             data={"metadatas_json": invalid_metadata_not_list},
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 400
@@ -382,7 +348,6 @@ async def test_documents_create_with_non_existent_collection() -> None:
         response = await client.post(
             f"/collections/{uuid}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 404
@@ -398,7 +363,6 @@ async def test_documents_create_with_multiple_files():
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -414,7 +378,6 @@ async def test_documents_create_with_multiple_files():
         response = await client.post(
             f"/collections/{collection_id}/documents",
             files=files,
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 200
@@ -429,7 +392,6 @@ async def test_documents_create_with_multiple_files():
         # Verify documents were added by listing documents
         list_response = await client.get(
             f"/collections/{collection_id}/documents",
-            headers=USER_1_HEADERS,
         )
         assert list_response.status_code == 200
         documents = list_response.json()
@@ -446,7 +408,6 @@ async def test_documents_create_with_mismatched_metadata():
         collection_response = await client.post(
             "/collections",
             json={"name": collection_name, "metadata": {}},
-            headers=USER_1_HEADERS,
         )
         assert collection_response.status_code == 201
         collection_data = collection_response.json()
@@ -467,7 +428,6 @@ async def test_documents_create_with_mismatched_metadata():
             f"/collections/{collection_id}/documents",
             files=files,
             data={"metadatas_json": metadata_json},
-            headers=USER_1_HEADERS,
         )
 
         assert response.status_code == 400
@@ -481,7 +441,7 @@ async def test_documents_bulk_delete() -> None:
         # Create a collection
         collection_name = "bulk_delete_test_col"
         col_payload = {"name": collection_name}
-        create_col = await client.post("/collections", json=col_payload, headers=USER_1_HEADERS)
+        create_col = await client.post("/collections", json=col_payload)
         assert create_col.status_code == 201
         collection_id = create_col.json()["uuid"]
 
@@ -492,7 +452,6 @@ async def test_documents_bulk_delete() -> None:
             f"/collections/{collection_id}/documents",
             files=files1,
             data={"metadatas_json": meta1},
-            headers=USER_1_HEADERS,
         )
 
         files2 = [("files", ("file2.txt", b"second file content", "text/plain"))]
@@ -501,15 +460,14 @@ async def test_documents_bulk_delete() -> None:
             f"/collections/{collection_id}/documents",
             files=files2,
             data={"metadatas_json": meta2},
-            headers=USER_1_HEADERS,
         )
 
         # List all documents to get their IDs
-        list_resp = await client.get(f"/collections/{collection_id}/documents?limit=100", headers=USER_1_HEADERS)
+        list_resp = await client.get(f"/collections/{collection_id}/documents?limit=100")
         assert list_resp.status_code == 200
         docs = list_resp.json()
         assert len(docs) == 2
-        
+
         doc_ids = [doc['id'] for doc in docs]
         file_ids = [doc['metadata']['file_id'] for doc in docs]
 
@@ -518,14 +476,13 @@ async def test_documents_bulk_delete() -> None:
         del_resp_docs = await client.delete(
             f"/collections/{collection_id}/documents",
             json=del_payload_docs,
-            headers=USER_1_HEADERS,
         )
         assert del_resp_docs.status_code == 200
         assert del_resp_docs.json()["success"] is True
         assert del_resp_docs.json()["deleted_count"] == 1
 
         # Verify one document is left
-        list_resp_after_doc_delete = await client.get(f"/collections/{collection_id}/documents", headers=USER_1_HEADERS)
+        list_resp_after_doc_delete = await client.get(f"/collections/{collection_id}/documents")
         assert len(list_resp_after_doc_delete.json()) == 1
 
         # Bulk delete by file_ids
@@ -533,13 +490,11 @@ async def test_documents_bulk_delete() -> None:
         del_resp_files = await client.delete(
             f"/collections/{collection_id}/documents",
             json=del_payload_files,
-            headers=USER_1_HEADERS,
         )
         assert del_resp_files.status_code == 200
         assert del_resp_files.json()["success"] is True
         assert del_resp_files.json()["deleted_count"] == 1
 
         # Verify no documents are left
-        list_resp_after_file_delete = await client.get(f"/collections/{collection_id}/documents", headers=USER_1_HEADERS)
+        list_resp_after_file_delete = await client.get(f"/collections/{collection_id}/documents")
         assert list_resp_after_file_delete.json() == []
-

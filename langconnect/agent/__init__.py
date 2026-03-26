@@ -21,7 +21,6 @@ async def run_agentic_search(
     question: str,
     collection_id: str,
     *,
-    user_id: str | None = None,
     search_type: Literal["semantic", "keyword", "hybrid"] = "hybrid",
     search_limit: int = 5,
     search_filter: dict[str, Any] | None = None,
@@ -35,7 +34,6 @@ async def run_agentic_search(
     Args:
         question: The user's question.
         collection_id: UUID of the collection to search.
-        user_id: Optional user ID for access control.
         search_type: Search algorithm ("semantic", "keyword", "hybrid").
         search_limit: Max documents per retrieval.
         search_filter: Optional metadata filter dict.
@@ -63,7 +61,6 @@ async def run_agentic_search(
         initial_state = {
             "question": question,
             "collection_id": collection_id,
-            "user_id": user_id,
             "search_type": search_type,
             "search_limit": search_limit,
             "search_filter": search_filter,

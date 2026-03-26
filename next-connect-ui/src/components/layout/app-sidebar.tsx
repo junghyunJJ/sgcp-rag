@@ -7,34 +7,22 @@ import {
   Home,
   Database,
   Code,
-  Globe,
 } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { NavMain } from "./nav-main"
-import { NavUser } from "./nav-user"
 import Link from "next/link"
 import { useTranslation } from "@/hooks/use-translation"
-import { useLanguage } from "@/providers/language-provider"
 
 export function AppSidebar() {
   const pathname = usePathname()
   const { t } = useTranslation()
-  const { language, setLanguage } = useLanguage()
 
   const mainItems = [
     {
@@ -89,27 +77,6 @@ export function AppSidebar() {
         <SidebarContent>
           <NavMain title={t("sidebar.mainTitle")} items={mainItems} />
         </SidebarContent>
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <div className="px-3 py-2">
-                <Select value={language} onValueChange={(value: 'en' | 'ko') => setLanguage(value)}>
-                  <SelectTrigger className="w-full h-9">
-                    <div className="flex items-center gap-2">
-                      <Globe className="h-4 w-4" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="en">{t("language.english")}</SelectItem>
-                    <SelectItem value="ko">{t("language.korean")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </SidebarMenuItem>
-          </SidebarMenu>
-          <NavUser />
-        </SidebarFooter>
       </Sidebar>
     </>
   )

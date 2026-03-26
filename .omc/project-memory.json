@@ -219,15 +219,57 @@
   },
   "hotPaths": [
     {
-      "path": "",
-      "accessCount": 15,
-      "lastAccessed": 1774426193009,
+      "path": "langconnect/database/collections.py",
+      "accessCount": 29,
+      "lastAccessed": 1774515413854,
+      "type": "file"
+    },
+    {
+      "path": "langconnect",
+      "accessCount": 18,
+      "lastAccessed": 1774515112164,
       "type": "directory"
     },
     {
-      "path": "langconnect/database/collections.py",
+      "path": "",
+      "accessCount": 18,
+      "lastAccessed": 1774515321866,
+      "type": "directory"
+    },
+    {
+      "path": "langconnect/api/documents.py",
+      "accessCount": 13,
+      "lastAccessed": 1774515107212,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/nodes.py",
+      "accessCount": 12,
+      "lastAccessed": 1774514844982,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/server.py",
+      "accessCount": 11,
+      "lastAccessed": 1774514393945,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/collections.py",
+      "accessCount": 11,
+      "lastAccessed": 1774514816627,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver/mcp_server.py",
       "accessCount": 10,
-      "lastAccessed": 1774426887425,
+      "lastAccessed": 1774514394788,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/__init__.py",
+      "accessCount": 10,
+      "lastAccessed": 1774514864452,
       "type": "file"
     },
     {
@@ -237,33 +279,15 @@
       "type": "file"
     },
     {
-      "path": "mcpserver/mcp_server.py",
-      "accessCount": 9,
-      "lastAccessed": 1774426988646,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/agent/nodes.py",
-      "accessCount": 9,
-      "lastAccessed": 1774427126659,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/server.py",
-      "accessCount": 9,
-      "lastAccessed": 1774427169855,
-      "type": "file"
-    },
-    {
-      "path": "langconnect",
-      "accessCount": 8,
-      "lastAccessed": 1774426200383,
-      "type": "directory"
-    },
-    {
       "path": "langconnect/database/connection.py",
-      "accessCount": 8,
-      "lastAccessed": 1774426829713,
+      "accessCount": 9,
+      "lastAccessed": 1774514405553,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/api/agentic.py",
+      "accessCount": 9,
+      "lastAccessed": 1774514832146,
       "type": "file"
     },
     {
@@ -274,8 +298,20 @@
     },
     {
       "path": "langconnect/config.py",
-      "accessCount": 6,
-      "lastAccessed": 1774426846994,
+      "accessCount": 7,
+      "lastAccessed": 1774514382604,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/test_collections_api.py",
+      "accessCount": 7,
+      "lastAccessed": 1774514961504,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/test_documents_api.py",
+      "accessCount": 7,
+      "lastAccessed": 1774515037654,
       "type": "file"
     },
     {
@@ -285,33 +321,9 @@
       "type": "file"
     },
     {
-      "path": "langconnect/api/documents.py",
-      "accessCount": 6,
-      "lastAccessed": 1774427001093,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/agent/__init__.py",
-      "accessCount": 6,
-      "lastAccessed": 1774427058554,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/api/collections.py",
-      "accessCount": 6,
-      "lastAccessed": 1774427086219,
-      "type": "file"
-    },
-    {
       "path": "docs/agenticRAG_architecture.md",
       "accessCount": 5,
       "lastAccessed": 1774424584957,
-      "type": "file"
-    },
-    {
-      "path": "langconnect/api/agentic.py",
-      "accessCount": 5,
-      "lastAccessed": 1774426148445,
       "type": "file"
     },
     {
@@ -321,15 +333,27 @@
       "type": "file"
     },
     {
-      "path": "langconnect/models/agentic.py",
-      "accessCount": 4,
-      "lastAccessed": 1774426151991,
-      "type": "file"
+      "path": "mcpserver",
+      "accessCount": 5,
+      "lastAccessed": 1774514376574,
+      "type": "directory"
     },
     {
       "path": "langconnect/api/__init__.py",
+      "accessCount": 5,
+      "lastAccessed": 1774514399193,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/agent/state.py",
+      "accessCount": 5,
+      "lastAccessed": 1774514837838,
+      "type": "file"
+    },
+    {
+      "path": "langconnect/models/agentic.py",
       "accessCount": 4,
-      "lastAccessed": 1774426159329,
+      "lastAccessed": 1774426151991,
       "type": "file"
     },
     {
@@ -348,12 +372,6 @@
       "path": "langconnect/parsers/pymupdf_parser.py",
       "accessCount": 4,
       "lastAccessed": 1774426959850,
-      "type": "file"
-    },
-    {
-      "path": "tests/unit_tests/test_documents_api.py",
-      "accessCount": 4,
-      "lastAccessed": 1774427162585,
       "type": "file"
     },
     {
@@ -393,6 +411,18 @@
       "type": "file"
     },
     {
+      "path": "tests/unit_tests/conftest.py",
+      "accessCount": 3,
+      "lastAccessed": 1774514372191,
+      "type": "file"
+    },
+    {
+      "path": "mcpserver/base_mcp_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1774514394494,
+      "type": "file"
+    },
+    {
       "path": "docs/agenticRAG.md",
       "accessCount": 2,
       "lastAccessed": 1774423942410,
@@ -429,21 +459,9 @@
       "type": "file"
     },
     {
-      "path": "langconnect/agent/state.py",
-      "accessCount": 2,
-      "lastAccessed": 1774426160852,
-      "type": "file"
-    },
-    {
       "path": "docker-compose.yml",
       "accessCount": 2,
       "lastAccessed": 1774426162199,
-      "type": "file"
-    },
-    {
-      "path": "mcpserver/base_mcp_server.py",
-      "accessCount": 2,
-      "lastAccessed": 1774426168129,
       "type": "file"
     },
     {
@@ -453,16 +471,22 @@
       "type": "file"
     },
     {
+      "path": "tests/conftest.py",
+      "accessCount": 2,
+      "lastAccessed": 1774514372407,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit_tests/fixtures.py",
+      "accessCount": 2,
+      "lastAccessed": 1774514372669,
+      "type": "file"
+    },
+    {
       "path": "next-connect-ui/src/types/search.ts",
       "accessCount": 1,
       "lastAccessed": 1774423922355,
       "type": "file"
-    },
-    {
-      "path": "mcpserver",
-      "accessCount": 1,
-      "lastAccessed": 1774423924448,
-      "type": "directory"
     },
     {
       "path": "docs/plan_agenticRAG.md",
@@ -492,30 +516,6 @@
       "path": "mcpserver/__init__.py",
       "accessCount": 1,
       "lastAccessed": 1774426169314,
-      "type": "file"
-    },
-    {
-      "path": "tests/conftest.py",
-      "accessCount": 1,
-      "lastAccessed": 1774426177436,
-      "type": "file"
-    },
-    {
-      "path": "tests/unit_tests/conftest.py",
-      "accessCount": 1,
-      "lastAccessed": 1774426177473,
-      "type": "file"
-    },
-    {
-      "path": "tests/unit_tests/fixtures.py",
-      "accessCount": 1,
-      "lastAccessed": 1774426178018,
-      "type": "file"
-    },
-    {
-      "path": "tests/unit_tests/test_collections_api.py",
-      "accessCount": 1,
-      "lastAccessed": 1774426179088,
       "type": "file"
     }
   ],

@@ -35,9 +35,8 @@ async def retrieve(state: AgentState) -> dict[str, Any]:
     logger.info("--- RETRIEVE ---")
     question = state["question"]
     collection_id = state["collection_id"]
-    user_id = state.get("user_id")
 
-    collection = Collection(collection_id=collection_id, user_id=user_id)
+    collection = Collection(collection_id=collection_id)
     documents = await collection.search(
         question,
         limit=state.get("search_limit", 5),
