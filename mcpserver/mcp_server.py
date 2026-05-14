@@ -708,6 +708,7 @@ async def agentic_search(
     search_limit: int = 5,
     max_rewrites: int = 3,
     filter_json: Optional[str] = None,
+    use_wiki_context: bool = False,
 ) -> str:
     """Run an agentic RAG search that automatically evaluates, rewrites queries, and validates answers.
 
@@ -725,6 +726,7 @@ async def agentic_search(
         max_rewrites: Maximum number of query rewrite attempts. Default is 3.
         filter_json: Optional JSON string with metadata filters.
                     Example: '{"source": "paper.pdf"}'
+        use_wiki_context: Use non-authoritative LLM Wiki navigation context during generation.
 
     Returns:
         str: JSON string with the answer, source documents, execution trace, and any rewrites.
@@ -735,13 +737,18 @@ async def agentic_search(
         "search_type": search_type,
         "search_limit": search_limit,
         "max_rewrites": max_rewrites,
+        "use_wiki_context": use_wiki_context,
     }
 
     if filter_json:
         try:
             search_data["filter"] = json.loads(filter_json)
         except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in filter parameter"})
+            return json.dumps({
+                "error": "Invalid JSON in filter parameter",
+                "selected_wiki_pages": [],
+                "wiki_context_status": "disabled",
+            })
 
     try:
         result = await client.request(
@@ -764,6 +771,8 @@ async def agentic_search(
             "steps": result.get("steps", []),
             "rewrites": result.get("query_rewrites", []),
             "rewrite_count": result.get("rewrite_count", 0),
+            "selected_wiki_pages": result.get("selected_wiki_pages", []),
+            "wiki_context_status": result.get("wiki_context_status") or "disabled",
         }
 
         if result.get("error"):
@@ -776,9 +785,15 @@ async def agentic_search(
             "error": "Agentic search timed out. The AI reasoning loop may need more time. Try reducing max_rewrites or using a simpler search_type.",
             "answer": "",
             "sources": [],
+            "selected_wiki_pages": [],
+            "wiki_context_status": "disabled",
         })
     except Exception as e:
-        return json.dumps({"error": f"Agentic search failed: {e!s}"})
+        return json.dumps({
+            "error": f"Agentic search failed: {e!s}",
+            "selected_wiki_pages": [],
+            "wiki_context_status": "disabled",
+        })
 
 
 @mcp.tool

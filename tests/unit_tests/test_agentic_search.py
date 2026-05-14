@@ -61,6 +61,10 @@ def _make_state(**overrides: object) -> AgentState:
         "steps": [],
         "error": None,
         "no_context_found": False,
+        "use_wiki_context": False,
+        "wiki_context": "",
+        "selected_wiki_pages": [],
+        "wiki_context_status": "disabled",
     }
     base.update(overrides)
     return base
@@ -107,6 +111,10 @@ def test_agent_state_defaults():
     assert state["steps"] == []
     assert state["min_score"] is None
     assert state["no_context_found"] is False
+    assert state["use_wiki_context"] is False
+    assert state["wiki_context"] == ""
+    assert state["selected_wiki_pages"] == []
+    assert state["wiki_context_status"] == "disabled"
 
 
 @pytest.mark.parametrize("field_name", ["steps", "query_rewrites"])
@@ -125,6 +133,18 @@ def test_agentic_search_query_accepts_bounded_min_score():
     assert AgenticSearchQuery(question="test", min_score=0).min_score == 0
     assert AgenticSearchQuery(question="test", min_score=0.75).min_score == 0.75
     assert AgenticSearchQuery(question="test", min_score=1).min_score == 1
+    assert AgenticSearchQuery(question="test").use_wiki_context is False
+    assert AgenticSearchQuery(question="test", use_wiki_context=True).use_wiki_context
+
+
+def test_agentic_search_result_defaults_wiki_metadata():
+    """AgenticSearchResult should default wiki metadata to disabled/empty."""
+    from langconnect.models.agentic import AgenticSearchResult
+
+    result = AgenticSearchResult()
+
+    assert result.selected_wiki_pages == []
+    assert result.wiki_context_status == "disabled"
 
 
 @pytest.mark.parametrize("min_score", [-0.1, 1.1])
@@ -240,6 +260,57 @@ async def test_generate_node():
 
     assert result["generation"] == "LangGraph is a framework for building stateful agents."
     assert "generate:" in result["steps"][-1]
+    mock_chain.ainvoke.assert_awaited_once_with(
+        {
+            "question": "What is LangGraph?",
+            "context": (
+                "LangGraph is a framework for building stateful agents."
+                "\n\n---\n\n"
+                "Python is a programming language."
+            ),
+        }
+    )
+
+
+async def test_generate_node_with_wiki_context_uses_wiki_prompt():
+    """Generate should include wiki context only when it is selected."""
+    mock_result = MagicMock()
+    mock_result.content = "LangGraph is a framework for building stateful agents."
+
+    mock_chain = MagicMock()
+    mock_chain.ainvoke = AsyncMock(return_value=mock_result)
+
+    state = _make_state(
+        relevant_documents=MOCK_DOCUMENTS,
+        use_wiki_context=True,
+        wiki_context="Non-authoritative navigation memory: LangGraph agents.",
+        selected_wiki_pages=[{"id": "lg", "title": "LangGraph"}],
+        wiki_context_status="selected",
+    )
+
+    with patch("langconnect.agent.nodes.ChatPromptTemplate") as mock_prompt_cls:
+        mock_prompt = MagicMock()
+        mock_prompt.__or__ = MagicMock(return_value=mock_chain)
+        mock_prompt_cls.from_messages = MagicMock(return_value=mock_prompt)
+
+        mock_llm = MagicMock()
+        result = await generate(state, mock_llm)
+
+    prompt_text = mock_prompt_cls.from_messages.call_args.args[0][0][1]
+    assert "non-authoritative navigation memory" in prompt_text
+    mock_chain.ainvoke.assert_awaited_once_with(
+        {
+            "question": "What is LangGraph?",
+            "context": (
+                "LangGraph is a framework for building stateful agents."
+                "\n\n---\n\n"
+                "Python is a programming language."
+            ),
+            "wiki_context": "Non-authoritative navigation memory: LangGraph agents.",
+        }
+    )
+    assert result["generation"] == "LangGraph is a framework for building stateful agents."
+    assert "wiki_context: selected 1 pages" in result["steps"]
 
 
 async def test_no_context_node_sets_terminal_error():
@@ -301,6 +372,7 @@ async def test_grade_generation_passes():
     state = _make_state(
         generation="LangGraph builds stateful agents.",
         relevant_documents=MOCK_DOCUMENTS,
+        wiki_context="Non-authoritative navigation memory that must be ignored.",
     )
 
     with (
@@ -311,6 +383,8 @@ async def test_grade_generation_passes():
         result = await grade_generation(state, mock_llm)
 
     assert "PASSED" in result["steps"][-1]
+    hallucination_payload = mock_hallucination_grader.ainvoke.await_args.args[0]
+    assert "Non-authoritative navigation memory" not in hallucination_payload["documents"]
 
 
 async def test_grade_generation_fails_hallucination():
@@ -440,6 +514,8 @@ async def test_run_agentic_search_error_handling():
     assert result["error"] is not None
     assert "LLM unavailable" in result["error"]
     assert result["generation"] == ""
+    assert result["selected_wiki_pages"] == []
+    assert result["wiki_context_status"] == "disabled"
 
 
 async def test_run_agentic_search_passes_min_score_to_initial_state():
@@ -470,6 +546,86 @@ async def test_run_agentic_search_passes_min_score_to_initial_state():
 
     initial_state = mock_graph.ainvoke.await_args.args[0]
     assert initial_state["min_score"] == 0.73
+    assert initial_state["use_wiki_context"] is False
+    assert initial_state["wiki_context_status"] == "disabled"
+
+
+async def test_run_agentic_search_resolves_wiki_context_when_enabled():
+    """run_agentic_search should load selected wiki context into graph state."""
+    from langconnect.agent import run_agentic_search
+    from langconnect.agent.wiki_context import WikiContextResult
+
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "generation": "answer",
+            "relevant_documents": [],
+            "steps": [],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "error": None,
+            "selected_wiki_pages": [{"id": "wiki", "title": "Wiki"}],
+            "wiki_context_status": "selected",
+        }
+    )
+
+    with (
+        patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+        patch(
+            "langconnect.agent.resolve_wiki_context",
+            return_value=WikiContextResult(
+                context="Non-authoritative navigation memory.",
+                selected_pages=[{"id": "wiki", "title": "Wiki"}],
+                status="selected",
+            ),
+        ) as mock_resolve,
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+            use_wiki_context=True,
+        )
+
+    mock_resolve.assert_called_once_with("fake-uuid", "test?")
+    initial_state = mock_graph.ainvoke.await_args.args[0]
+    assert initial_state["use_wiki_context"] is True
+    assert initial_state["wiki_context"] == "Non-authoritative navigation memory."
+    assert initial_state["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert initial_state["wiki_context_status"] == "selected"
+    assert result["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert result["wiki_context_status"] == "selected"
+
+
+async def test_run_agentic_search_preserves_finite_wiki_status_on_error():
+    """Graph setup failures should not erase resolved wiki status metadata."""
+    from langconnect.agent import run_agentic_search
+    from langconnect.agent.wiki_context import WikiContextResult
+
+    with (
+        patch(
+            "langconnect.agent.resolve_wiki_context",
+            return_value=WikiContextResult(
+                context="Non-authoritative navigation memory.",
+                selected_pages=[{"id": "wiki", "title": "Wiki"}],
+                status="selected",
+            ),
+        ),
+        patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
+        patch(
+            "langconnect.agent.build_agentic_rag_graph",
+            side_effect=RuntimeError("graph unavailable"),
+        ),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+            use_wiki_context=True,
+        )
+
+    assert result["error"] == "graph unavailable"
+    assert result["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert result["wiki_context_status"] == "selected"
 
 
 async def test_agentic_api_passes_min_score_to_runner():
@@ -492,10 +648,15 @@ async def test_agentic_api_passes_min_score_to_runner():
     ) as mock_runner:
         await agentic_search(
             uuid4(),
-            AgenticSearchQuery(question="What is LangGraph?", min_score=0.64),
+            AgenticSearchQuery(
+                question="What is LangGraph?",
+                min_score=0.64,
+                use_wiki_context=True,
+            ),
         )
 
     assert mock_runner.await_args.kwargs["min_score"] == 0.64
+    assert mock_runner.await_args.kwargs["use_wiki_context"] is True
 
 
 # --- E2E Graph Test ---

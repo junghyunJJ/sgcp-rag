@@ -191,3 +191,94 @@ async def test_multi_query_no_key():
     data = json.loads(out)
     assert "error" in data
     monkeypatch.undo()
+
+
+async def test_agentic_search_forwards_wiki_context_and_returns_metadata(monkeypatch):
+    """Forward wiki context opt-in through the stdio MCP wrapper."""
+    captured: dict[str, object] = {}
+
+    async def dummy_request(
+        method: str,
+        endpoint: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.update({"method": method, "endpoint": endpoint, **kwargs})
+        return {
+            "generation": "answer",
+            "relevant_documents": [],
+            "steps": ["wiki_context: selected 1 pages"],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "selected_wiki_pages": [{"id": "wiki", "title": "Wiki"}],
+            "wiki_context_status": "selected",
+        }
+
+    monkeypatch.setattr(mcp_mod.client, "request", dummy_request)
+
+    out = await agentic_search("cid", "question?", use_wiki_context=True)
+    data = json.loads(out)
+
+    assert captured["json"]["use_wiki_context"] is True
+    assert data["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert data["wiki_context_status"] == "selected"
+
+
+async def test_sse_agentic_search_forwards_wiki_context_and_returns_metadata(
+    monkeypatch,
+):
+    """Forward wiki context opt-in through the SSE MCP wrapper."""
+    import mcpserver.mcp_sse_server as sse_mod
+
+    captured: dict[str, object] = {}
+
+    async def dummy_request(
+        method: str,
+        endpoint: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.update({"method": method, "endpoint": endpoint, **kwargs})
+        return {
+            "generation": "answer",
+            "relevant_documents": [],
+            "steps": ["wiki_context: selected 1 pages"],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "selected_wiki_pages": [{"id": "wiki", "title": "Wiki"}],
+            "wiki_context_status": "selected",
+        }
+
+    monkeypatch.setattr(sse_mod.client, "request", dummy_request)
+
+    out = await sse_mod.agentic_search.fn(
+        "cid",
+        "question?",
+        use_wiki_context=True,
+    )
+    data = json.loads(out)
+
+    assert captured["json"]["use_wiki_context"] is True
+    assert data["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert data["wiki_context_status"] == "selected"
+
+
+async def test_agentic_search_invalid_filter_returns_finite_wiki_status():
+    """Invalid filter errors should still include wiki status metadata."""
+    out = await agentic_search("cid", "question?", filter_json="not-json")
+    data = json.loads(out)
+
+    assert data["error"] == "Invalid JSON in filter parameter"
+    assert data["selected_wiki_pages"] == []
+    assert data["wiki_context_status"] == "disabled"
+
+    import mcpserver.mcp_sse_server as sse_mod
+
+    sse_out = await sse_mod.agentic_search.fn(
+        "cid",
+        "question?",
+        filter_json="not-json",
+    )
+    sse_data = json.loads(sse_out)
+
+    assert sse_data["error"] == "Invalid JSON in filter parameter"
+    assert sse_data["selected_wiki_pages"] == []
+    assert sse_data["wiki_context_status"] == "disabled"

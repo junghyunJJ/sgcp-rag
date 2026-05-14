@@ -63,6 +63,10 @@ AgentState (TypedDict)
 ├── query_rewrites    ← 재작성 이력 ["v1", "v2", ...]
 ├── rewrite_count     ← 현재 루프 카운터
 ├── max_rewrites      ← 최대 재시도 (기본 3, 루프 방지)
+├── use_wiki_context  ← optional LLM Wiki navigation layer 사용 여부
+├── wiki_context      ← generation에만 주입되는 비권위 해석 메모리
+├── selected_wiki_pages ← 선택된 wiki page metadata (최대 3개)
+├── wiki_context_status ← disabled/selected/missing_pack/no_match/invalid_json/invalid_schema
 ├── steps             ← 실행 추적 로그 ["retrieve: found 5 documents", ...]
 └── error             ← 에러 메시지 (nullable)
 ```
@@ -155,6 +159,8 @@ context = "\n\n---\n\n".join(doc.page_content for doc in relevant_docs)
 # ANSWER_GENERATOR_PROMPT에 question + context를 넣어 답변 생성
 result = await chain.ainvoke({"question": question, "context": context})
 ```
+
+`use_wiki_context=true`이면 `generate` 단계에서만 LLM Wiki context를 추가로 넣습니다. 이 context는 source of truth가 아니라 navigation layer / interpretation memory이며, 환각 검증과 citation 근거는 계속 `relevant_documents`의 raw retrieved context만 사용합니다. 자세한 pack 계약은 [llm-wiki-context.md](llm-wiki-context.md)를 참고합니다.
 
 ### 3.4 `rewrite_query(state, llm)` -- 쿼리 재작성
 

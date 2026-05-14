@@ -43,6 +43,7 @@ async def agentic_search(
         llm_provider=query.llm_provider,
         llm_model=query.llm_model,
         llm_temperature=query.llm_temperature,
+        use_wiki_context=query.use_wiki_context,
     )
 
     return AgenticSearchResult(**result)

@@ -7,6 +7,15 @@ Each node reads from and writes partial updates to this state.
 import operator
 from typing import Annotated, Any, Literal, TypedDict
 
+WikiContextStatus = Literal[
+    "disabled",
+    "selected",
+    "missing_pack",
+    "no_match",
+    "invalid_json",
+    "invalid_schema",
+]
+
 
 class AgentState(TypedDict):
     """State flowing through the Agentic RAG graph."""
@@ -26,3 +35,7 @@ class AgentState(TypedDict):
     steps: Annotated[list[str], operator.add]
     error: str | None
     no_context_found: bool
+    use_wiki_context: bool
+    wiki_context: str
+    selected_wiki_pages: list[dict[str, Any]]
+    wiki_context_status: WikiContextStatus

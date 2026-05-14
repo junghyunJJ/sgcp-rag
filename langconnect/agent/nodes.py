@@ -19,7 +19,11 @@ from langconnect.agent.graders import (
     get_document_grader,
     get_hallucination_grader,
 )
-from langconnect.agent.prompts import ANSWER_GENERATOR_PROMPT, QUERY_REWRITER_PROMPT
+from langconnect.agent.prompts import (
+    ANSWER_GENERATOR_PROMPT,
+    ANSWER_GENERATOR_WITH_WIKI_PROMPT,
+    QUERY_REWRITER_PROMPT,
+)
 from langconnect.agent.state import AgentState
 from langconnect.database.collections import Collection
 
@@ -85,16 +89,28 @@ async def generate(
     context = "\n\n---\n\n".join(
         doc.get("page_content", "") for doc in relevant_docs
     )
+    wiki_context = state.get("wiki_context", "")
+
+    prompt_text = ANSWER_GENERATOR_PROMPT
+    payload = {"question": question, "context": context}
+    steps = []
+    if wiki_context:
+        prompt_text = ANSWER_GENERATOR_WITH_WIKI_PROMPT
+        payload["wiki_context"] = wiki_context
+        selected_count = len(state.get("selected_wiki_pages", []))
+        steps.append(f"wiki_context: selected {selected_count} pages")
+    elif state.get("use_wiki_context"):
+        steps.append(f"wiki_context: {state.get('wiki_context_status', 'disabled')}")
 
     prompt = ChatPromptTemplate.from_messages([
-        ("human", ANSWER_GENERATOR_PROMPT),
+        ("human", prompt_text),
     ])
     chain = prompt | llm
 
-    result = await chain.ainvoke({"question": question, "context": context})
+    result = await chain.ainvoke(payload)
     generation = result.content
 
-    return {"generation": generation, "steps": ["generate: answer produced"]}
+    return {"generation": generation, "steps": [*steps, "generate: answer produced"]}
 
 
 async def no_context(state: AgentState) -> dict[str, Any]:

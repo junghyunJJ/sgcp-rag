@@ -43,6 +43,23 @@ Context:
 
 Answer:"""
 
+ANSWER_GENERATOR_WITH_WIKI_PROMPT = """\
+You are an assistant for question-answering tasks. Use the retrieved context to \
+answer the question. The LLM Wiki context is non-authoritative navigation memory: \
+it may help orient interpretation, but it is not evidence and must not be cited or \
+treated as support. If the retrieved context does not support the answer, just say \
+that you don't know. Keep the answer concise (3-5 sentences max).
+
+Question: {question}
+
+LLM Wiki context:
+{wiki_context}
+
+Retrieved context:
+{context}
+
+Answer:"""
+
 HALLUCINATION_GRADER_PROMPT = """\
 You are a grader assessing whether an LLM generation is grounded in / supported by \
 a set of retrieved facts. Give a binary score: 'yes' or 'no'. 'Yes' means that the \

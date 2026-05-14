@@ -4,6 +4,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+WikiContextStatus = Literal[
+    "disabled",
+    "selected",
+    "missing_pack",
+    "no_match",
+    "invalid_json",
+    "invalid_schema",
+]
+
 
 class AgenticSearchQuery(BaseModel):
     """Request body for POST /collections/{id}/agentic-search."""
@@ -20,7 +29,13 @@ class AgenticSearchQuery(BaseModel):
     max_rewrites: int = Field(3, ge=0, le=10, description="Max query rewrite attempts")
     llm_provider: str | None = Field(None, description="LLM provider override")
     llm_model: str | None = Field(None, description="LLM model override")
-    llm_temperature: float | None = Field(None, ge=0, le=2, description="LLM temperature override")
+    llm_temperature: float | None = Field(
+        None, ge=0, le=2, description="LLM temperature override"
+    )
+    use_wiki_context: bool = Field(
+        default=False,
+        description="Use non-authoritative LLM Wiki navigation context during generation",
+    )
 
 
 class AgenticSearchResult(BaseModel):
@@ -40,4 +55,12 @@ class AgenticSearchResult(BaseModel):
     error: str | None = Field(None, description="Error message if failed")
     no_context_found: bool = Field(
         default=False, description="True when no relevant context was found"
+    )
+    selected_wiki_pages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Selected non-authoritative wiki page metadata",
+    )
+    wiki_context_status: WikiContextStatus = Field(
+        default="disabled",
+        description="Finite status for optional wiki context resolution",
     )
