@@ -2,6 +2,8 @@
 .vscode/
 .idea/
 .claude/
+.omc/
+.omx/
 .pnpm-store/
 CLAUDE.md
 

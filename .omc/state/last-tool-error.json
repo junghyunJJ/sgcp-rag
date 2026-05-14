@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"grep -n \\\"auth\\\\|Auth\\\\|token\\\\|Token\\\\|session\\\\|Session\\\" /Users/jungj2/Dropbox/Metadata/mcp/langconnect_mcp/next-connect-ui/.env.example 2>/dev/null\"}",
-  "error": "Exit code 2",
-  "timestamp": "2026-03-26T09:05:39.469Z",
-  "retry_count": 1
-}

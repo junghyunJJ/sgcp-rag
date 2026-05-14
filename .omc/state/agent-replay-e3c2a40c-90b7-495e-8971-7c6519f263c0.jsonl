@@ -1,9 +1,0 @@
-{"t":0,"agent":"abc7ac7","agent_type":"architect","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"abc7ac7","agent_type":"architect","event":"agent_stop","success":true,"duration_ms":359454}
-{"t":0,"agent":"system","event":"skill_invoked","skill_name":"clarify"}
-{"t":0,"agent":"a1552be","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"abea1ce","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"a395be5","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"abea1ce","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":35303}
-{"t":0,"agent":"a1552be","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":42613}
-{"t":0,"agent":"a395be5","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":68611}

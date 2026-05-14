@@ -1,5 +1,0 @@
-{
-  "last_turn_at": "2026-03-25T08:00:33.496Z",
-  "turn_count": 7,
-  "last_agent_output": "`Adaptive RAG`라는 별도 모듈은 없고, 현재는 `agentic` 그래프가 adaptive 패턴을 구현하고 있어서 그 경로 기준으로 리뷰했습니다. 판정은 `REQUEST "
-}

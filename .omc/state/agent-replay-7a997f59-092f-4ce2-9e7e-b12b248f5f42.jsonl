@@ -1,3 +1,0 @@
-{"t":0,"agent":"system","event":"skill_invoked","skill_name":"clarify"}
-{"t":0,"agent":"add3669","agent_type":"mermaid-diagram-publisher","event":"agent_start","parent_mode":"none"}
-{"t":0,"agent":"add3669","agent_type":"mermaid-diagram-publisher","event":"agent_stop","success":true,"duration_ms":23774}
