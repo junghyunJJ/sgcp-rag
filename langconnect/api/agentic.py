@@ -38,6 +38,7 @@ async def agentic_search(
         search_type=query.search_type,
         search_limit=query.search_limit,
         search_filter=query.filter,
+        min_score=query.min_score,
         max_rewrites=query.max_rewrites,
         llm_provider=query.llm_provider,
         llm_model=query.llm_model,

@@ -42,12 +42,13 @@ async def retrieve(state: AgentState) -> dict[str, Any]:
         limit=state.get("search_limit", 5),
         search_type=state.get("search_type", "hybrid"),
         filter=state.get("search_filter"),
+        min_score=state.get("min_score"),
     )
 
-    steps = list(state.get("steps", []))
-    steps.append(f"retrieve: found {len(documents)} documents")
-
-    return {"documents": documents, "steps": steps}
+    return {
+        "documents": documents,
+        "steps": [f"retrieve: found {len(documents)} documents"],
+    }
 
 
 async def grade_documents(
@@ -57,8 +58,6 @@ async def grade_documents(
     logger.info("--- GRADE DOCUMENTS ---")
     question = state["question"]
     documents = state.get("documents", [])
-    steps = list(state.get("steps", []))
-
     grader = get_document_grader(llm)
     relevant_docs = []
 
@@ -70,11 +69,10 @@ async def grade_documents(
         if result.binary_score.lower() == "yes":
             relevant_docs.append(doc)
 
-    steps.append(
-        f"grade_documents: {len(relevant_docs)}/{len(documents)} relevant"
-    )
-
-    return {"relevant_documents": relevant_docs, "steps": steps}
+    return {
+        "relevant_documents": relevant_docs,
+        "steps": [f"grade_documents: {len(relevant_docs)}/{len(documents)} relevant"],
+    }
 
 
 async def generate(
@@ -84,8 +82,6 @@ async def generate(
     logger.info("--- GENERATE ---")
     question = state["question"]
     relevant_docs = state.get("relevant_documents", [])
-    steps = list(state.get("steps", []))
-
     context = "\n\n---\n\n".join(
         doc.get("page_content", "") for doc in relevant_docs
     )
@@ -98,9 +94,19 @@ async def generate(
     result = await chain.ainvoke({"question": question, "context": context})
     generation = result.content
 
-    steps.append("generate: answer produced")
+    return {"generation": generation, "steps": ["generate: answer produced"]}
 
-    return {"generation": generation, "steps": steps}
+
+async def no_context(state: AgentState) -> dict[str, Any]:
+    """Terminate the graph when retrieval cannot find relevant context."""
+    logger.info("--- NO CONTEXT ---")
+    return {
+        "error": "no_relevant_context",
+        "generation": "",
+        "relevant_documents": [],
+        "no_context_found": True,
+        "steps": ["no_context: no relevant documents found"],
+    }
 
 
 async def rewrite_query(
@@ -110,8 +116,6 @@ async def rewrite_query(
     logger.info("--- REWRITE QUERY ---")
     question = state["question"]
     rewrite_count = state.get("rewrite_count", 0)
-    query_rewrites = list(state.get("query_rewrites", []))
-    steps = list(state.get("steps", []))
 
     prompt = ChatPromptTemplate.from_messages([
         ("human", QUERY_REWRITER_PROMPT),
@@ -121,15 +125,13 @@ async def rewrite_query(
     result = await chain.ainvoke({"question": question})
     new_question = result.content
 
-    query_rewrites.append(new_question)
     rewrite_count += 1
-    steps.append(f"rewrite_query: '{question}' -> '{new_question}'")
 
     return {
         "question": new_question,
-        "query_rewrites": query_rewrites,
+        "query_rewrites": [new_question],
         "rewrite_count": rewrite_count,
-        "steps": steps,
+        "steps": [f"rewrite_query: '{question}' -> '{new_question}'"],
     }
 
 
@@ -145,7 +147,6 @@ async def grade_generation(
     generation = state.get("generation", "")
     relevant_docs = state.get("relevant_documents", [])
     question = state["question"]
-    steps = list(state.get("steps", []))
 
     # Stage 1: Hallucination check
     documents_text = "\n\n".join(
@@ -157,8 +158,7 @@ async def grade_generation(
     )
 
     if hallucination_result.binary_score.lower() != "yes":
-        steps.append("grade_generation: FAILED hallucination check")
-        return {"steps": steps}
+        return {"steps": ["grade_generation: FAILED hallucination check"]}
 
     # Stage 2: Answer quality check
     answer_grader = get_answer_grader(llm)
@@ -167,8 +167,6 @@ async def grade_generation(
     )
 
     if answer_result.binary_score.lower() != "yes":
-        steps.append("grade_generation: FAILED answer quality check")
-        return {"steps": steps}
+        return {"steps": ["grade_generation: FAILED answer quality check"]}
 
-    steps.append("grade_generation: PASSED both checks")
-    return {"steps": steps}
+    return {"steps": ["grade_generation: PASSED both checks"]}

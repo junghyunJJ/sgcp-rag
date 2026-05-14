@@ -1,5 +1,7 @@
 from typing import Any, Literal, Optional
+
 from pydantic import BaseModel, Field
+
 
 class DocumentCreate(BaseModel):
     content: str | None = None
@@ -22,9 +24,10 @@ class DocumentResponse(BaseModel):
 
 class SearchQuery(BaseModel):
     query: str
-    limit: int | None = 10
+    limit: int | None = Field(10, ge=1, le=100)
     filter: dict[str, Any] | None = None
     search_type: Literal["semantic", "keyword", "hybrid"] = "semantic"
+    min_score: float | None = Field(None, ge=0, le=1)
 
 
 class SearchResult(BaseModel):

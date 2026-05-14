@@ -10,7 +10,7 @@ flowchart TD
     B -->|"semantic"| C["벡터 유사도 검색<br/>PGVector.similarity_search_with_score()"]
     B -->|"keyword"| D["전문 검색<br/>PostgreSQL ts_rank + to_tsvector"]
     B -->|"hybrid"| E["하이브리드 검색<br/>Semantic + Keyword 결합"]
-    C --> F["메타데이터 필터 적용"]
+    C --> F["백엔드별 메타데이터 필터 적용"]
     D --> F
     E --> F
     F --> G["결과 반환<br/>{id, page_content, metadata, score}"]
@@ -119,17 +119,19 @@ formatted_results = [
 ]
 ```
 
-### 3.3 필터 적용 시 over-fetch
+### 3.3 필터와 최소 점수
 
-메타데이터 필터가 있으면 `limit * 3`개의 결과를 먼저 가져온 후 필터링한다:
+Semantic 검색은 검증된 metadata filter를 PGVector에 직접 전달한다. 반환된 distance는 similarity로 변환한 뒤 기본 최소 점수(`0.68`)보다 낮은 결과를 제외한다. 호출자는 `min_score`로 이 임계값을 낮추거나 높일 수 있다.
 
 ```python
-# langconnect/database/collections.py (라인 692)
-k = limit * 3 if filter else limit
-results = store.similarity_search_with_score(query, k=k)
+results = store.similarity_search_with_score(
+    query,
+    k=limit,
+    filter=metadata_filter,
+)
 ```
 
-> **참조**: `langconnect/database/collections.py` 라인 688-713
+> **참조**: `langconnect/database/collections.py`의 `Collection.search()`
 
 ---
 
@@ -195,47 +197,45 @@ LIMIT $3
 
 ### 5.1 전체 흐름
 
-Semantic과 Keyword 검색을 동시에 수행한 후, 가중 합산으로 최종 점수를 계산한다.
+Semantic과 Keyword 검색을 모두 수행한 후, normalized string id를 기준으로 union/dedupe하고 가중 합산으로 최종 점수를 계산한다. 따라서 semantic-only, keyword-only, semantic+keyword 문서가 모두 후보가 될 수 있다.
 
 ```mermaid
 flowchart TD
-    A["검색 쿼리 입력"] --> B["Semantic 검색 실행<br/>k = limit * 2"]
-    A --> C["Keyword 검색 실행<br/>limit = limit * 2"]
+    A["검색 쿼리 입력"] --> B["Semantic 검색 실행<br/>fetch_k"]
+    A --> C["Keyword 검색 실행<br/>fetch_k"]
     B --> D["결과 결합<br/>(combined_results dict)"]
     C --> D
     D --> E["가중 점수 계산<br/>semantic 70% + keyword 30%"]
-    E --> F["점수 정규화<br/>(0~1 범위)"]
-    F --> G["메타데이터 필터 적용"]
-    G --> H["점수 기준 내림차순 정렬"]
-    H --> I["상위 limit개 반환"]
+    E --> F["점수 기준 내림차순 정렬"]
+    F --> G["상위 limit개 반환"]
 ```
 
 ### 5.2 상세 스코어링 알고리즘
 
 #### 단계 1: Semantic 결과 처리
 
-Semantic 검색 결과의 거리를 유사도로 변환하고, 70% 가중치를 적용한다:
+Semantic 검색 결과의 거리를 유사도로 변환한다. 기본 `min_score`보다 낮은 결과는 제외하고, `str(doc.id)`를 결합 key로 사용한다:
 
 ```python
-# langconnect/database/collections.py (라인 830-841)
 for doc, distance in semantic_results:
-    similarity_score = 1 / (1 + distance)
-    combined_results[doc.id] = {
-        "id": doc.id,
+    similarity_score = _distance_to_similarity(distance)
+    if similarity_score < semantic_min_score:
+        continue
+    doc_id = str(doc.id)
+    combined_results[doc_id] = {
+        "id": doc_id,
         "page_content": doc.page_content,
         "metadata": doc.metadata,
         "semantic_score": similarity_score,
-        "keyword_score": 0,
-        "combined_score": similarity_score * 0.7,  # 70% 가중치
+        "keyword_score": 0.0,
     }
 ```
 
 #### 단계 2: Keyword 결과 처리 및 정규화
 
-Keyword 검색 결과의 `ts_rank` 점수를 최대값 기준으로 0~1 범위로 정규화한 후, 30% 가중치를 적용한다:
+Keyword 검색 결과의 `ts_rank` 점수를 최대값 기준으로 0~1 범위로 정규화한다. 같은 id가 semantic 후보에 있으면 `keyword_score`만 채우고, 없으면 keyword-only 후보로 추가한다:
 
 ```python
-# langconnect/database/collections.py (라인 844-874)
 if keyword_rows:
     max_keyword_score = max(
         (float(row["score"]) for row in keyword_rows), default=1.0
@@ -249,60 +249,40 @@ if keyword_rows:
         )
 
         if doc_id in combined_results:
-            # 이미 Semantic 결과에 있는 문서: 점수 업데이트
             combined_results[doc_id]["keyword_score"] = normalized_score
-            combined_results[doc_id]["combined_score"] = (
-                combined_results[doc_id]["semantic_score"] * 0.7
-                + normalized_score * 0.3
-            )
         else:
-            # Keyword에서만 발견된 새 문서
             combined_results[doc_id] = {
                 "id": doc_id,
                 "page_content": row["page_content"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
-                "semantic_score": 0,
+                "metadata": _metadata_from_row(row),
+                "semantic_score": 0.0,
                 "keyword_score": normalized_score,
-                "combined_score": normalized_score * 0.3,
             }
 ```
 
-#### 단계 3: 최종 점수 정규화
+#### 단계 3: 최종 점수 계산
 
-결과 유형에 따라 최종 점수를 0~1 범위로 정규화한다:
+최종 score는 모든 후보에 같은 가중합 공식을 적용한다:
 
 ```mermaid
 flowchart TD
-    A{"결과 유형?"} --> B["Semantic Only<br/>(keyword_score == 0)"]
-    A --> C["Keyword Only<br/>(semantic_score == 0)"]
-    A --> D["Hybrid<br/>(둘 다 > 0)"]
-
-    B --> E["final_score = combined_score / 0.7<br/>(최대 가능 점수 0.7으로 나눔)"]
-    C --> F["final_score = combined_score / 0.3<br/>(최대 가능 점수 0.3으로 나눔)"]
-    D --> G["final_score = combined_score<br/>(이미 0~1 범위)"]
-
-    E --> H["결과 정렬 & 반환"]
-    F --> H
-    G --> H
+    A["semantic_score"] --> C["score = semantic_score * 0.7 + keyword_score * 0.3"]
+    B["keyword_score"] --> C
+    C --> D["결과 정렬 & 반환"]
 ```
 
 ```python
-# langconnect/database/collections.py (라인 877-897)
 for result in combined_results.values():
-    combined_score = result["combined_score"]
-
-    if result["keyword_score"] == 0:  # semantic-only
-        final_score = combined_score / 0.7
-    elif result["semantic_score"] == 0:  # keyword-only
-        final_score = combined_score / 0.3
-    else:  # hybrid (둘 다 매칭)
-        final_score = combined_score
+    score = (
+        result["semantic_score"] * HYBRID_SEMANTIC_WEIGHT
+        + result["keyword_score"] * HYBRID_KEYWORD_WEIGHT
+    )
 
     all_results.append({
         "id": result["id"],
         "page_content": result["page_content"],
         "metadata": result["metadata"],
-        "score": final_score,
+        "score": score,
     })
 ```
 
@@ -310,17 +290,12 @@ for result in combined_results.values():
 
 다음은 가상의 검색 결과에 대한 스코어 계산 예시이다:
 
-| 문서 | semantic_score | keyword_score (정규화) | combined_score | 유형 | final_score |
-|------|---------------|----------------------|----------------|------|-------------|
-| Doc A | 0.85 | 0.90 | 0.85*0.7 + 0.90*0.3 = 0.865 | hybrid | **0.865** |
-| Doc B | 0.72 | 0 | 0.72*0.7 = 0.504 | semantic-only | 0.504/0.7 = **0.720** |
-| Doc C | 0 | 1.00 | 1.00*0.3 = 0.300 | keyword-only | 0.300/0.3 = **1.000** |
-| Doc D | 0.60 | 0.50 | 0.60*0.7 + 0.50*0.3 = 0.570 | hybrid | **0.570** |
-
-**정규화 결과 해석**:
-- Semantic-only 결과: 원래의 semantic_score 값이 복원된다 (0.504 / 0.7 = 0.72).
-- Keyword-only 결과: 원래의 정규화된 keyword_score 값이 복원된다 (0.300 / 0.3 = 1.00).
-- Hybrid 결과: 가중 합산 점수가 그대로 사용된다.
+| 문서 | semantic_score | keyword_score (정규화) | 유형 | final_score |
+|------|---------------|----------------------|------|-------------|
+| Doc A | 0.85 | 0.90 | hybrid | **0.865** |
+| Doc B | 0.72 | 0 | semantic-only | **0.504** |
+| Doc C | 0 | 1.00 | keyword-only | **0.300** |
+| Doc D | 0.60 | 0.50 | hybrid | **0.570** |
 
 ### 5.4 가중치 설정
 
@@ -333,14 +308,12 @@ for result in combined_results.values():
 
 ### 5.5 Over-fetch 전략
 
-Hybrid 검색에서 두 검색 모두 `limit * 2`개의 결과를 가져온다:
+Hybrid 검색은 semantic/keyword 양쪽에서 같은 `fetch_k`만큼 후보를 가져온다:
 
 ```python
-# langconnect/database/collections.py (라인 781)
-semantic_results = store.similarity_search_with_score(query, k=limit * 2)
-
-# 라인 804
-keyword_rows = await conn.fetch(..., limit * 2)
+fetch_k = min(max(limit * HYBRID_FETCH_MULTIPLIER, HYBRID_MIN_FETCH_K), HYBRID_MAX_FETCH_K)
+semantic_results = store.similarity_search_with_score(query, k=fetch_k)
+keyword_rows = await conn.fetch(..., fetch_k)
 ```
 
 이는 두 검색의 결합과 중복 제거 후에도 충분한 결과를 확보하기 위함이다.
@@ -351,27 +324,11 @@ keyword_rows = await conn.fetch(..., limit * 2)
 
 ### 6.1 필터 적용 방식
 
-모든 검색 유형에서 동일한 방식으로 메타데이터 필터가 적용된다. 필터는 **애플리케이션 레벨**에서 수행된다 (SQL WHERE 절이 아닌 결과 후처리).
+Metadata filter는 exact-match scalar 조건만 지원한다. `Collection.search()`는 먼저 필터 shape를 검증하고 `$and` 조건을 평탄화한 뒤, semantic/hybrid의 PGVector 경로와 keyword SQL 경로가 모두 적용할 수 있는 조건만 전달한다.
 
 ```python
-# langconnect/database/collections.py (라인 668-686)
-def apply_metadata_filter(
-    results: list[dict[str, Any]], filter_dict: dict[str, Any]
-) -> list[dict[str, Any]]:
-    if not filter_dict:
-        return results
-
-    filtered_results = []
-    for result in results:
-        result_metadata = result.get("metadata", {})
-        match = True
-        for key, value in filter_dict.items():
-            if key not in result_metadata or result_metadata[key] != value:
-                match = False
-                break
-        if match:
-            filtered_results.append(result)
-    return filtered_results
+metadata_filter = _validate_metadata_filter(filter)
+store.similarity_search_with_score(query, k=limit, filter=metadata_filter)
 ```
 
 ### 6.2 필터 동작 특성
@@ -379,9 +336,12 @@ def apply_metadata_filter(
 | 특성 | 설명 |
 |------|------|
 | 매칭 방식 | 정확 일치 (exact match) |
-| 다중 조건 | AND 논리 (모든 조건 충족 필요) |
-| 적용 시점 | 검색 결과 반환 후 애플리케이션에서 필터링 |
-| Over-fetch | 필터 사용 시 `limit * 3` (semantic/keyword) 또는 `limit * 2` (hybrid) |
+| 지원 값 | `str`, `int`, `float`, `bool`, `null` |
+| 다중 조건 | AND 논리 또는 `$and` 배열 |
+| 적용 시점 | PGVector filter 인자와 keyword SQL `jsonb @>` 조건 |
+| 지원 key | PGVector-compatible identifier key만 지원 |
+| 미지원 key 예시 | `source-url`, `file.name`, 공백/하이픈 포함 key |
+| 미지원 shape | `$ne` 같은 연산자, nested object, list |
 
 ### 6.3 필터 사용 예시
 
@@ -397,6 +357,8 @@ def apply_metadata_filter(
 ```
 
 위 필터는 `metadata.source == "paper.pdf"` AND `metadata.file_id == "abc123"`인 결과만 반환한다.
+
+현재 shared semantic/hybrid path는 PGVector 백엔드 제약 때문에 filter field name에 `str.isidentifier()`가 참인 key만 허용한다. 예를 들어 `source-url`, `file.name`, `file name`은 keyword JSONB 조건만으로는 표현 가능하더라도 PGVector-backed search filter와 호환되지 않아 HTTP 400으로 거부된다.
 
 ---
 
@@ -484,7 +446,8 @@ async def rag_prompt(query: str) -> list[dict]:
 | `query` | `str` | 필수 | - | 검색 쿼리 문자열 |
 | `limit` | `int` | `4` | 1~100 | 최대 반환 결과 수 |
 | `search_type` | `Literal` | `"semantic"` | semantic, keyword, hybrid | 검색 알고리즘 |
-| `filter` | `dict` | `None` | - | 메타데이터 필터 (exact match) |
+| `filter` | `dict` | `None` | scalar exact match | PGVector-compatible identifier key만 지원 |
+| `min_score` | `float \| None` | `None` | 0~1 | semantic 후보 최소 similarity |
 
 > **참조**: `langconnect/database/collections.py` 라인 640-647
 
@@ -533,7 +496,7 @@ graph LR
     subgraph "Hybrid Search"
         H1["두 검색 동시 실행"]
         H2["가중 합산 (7:3)"]
-        H3["점수 정규화"]
+        H3["id 기준 union/dedupe"]
     end
 ```
 
@@ -545,8 +508,8 @@ graph LR
 | **언어 지원** | 모든 언어 (임베딩 모델 의존) | 영어 (english 사전 고정) | 양쪽 결합 |
 | **장점** | 유의어, 의미 파악 | 정확한 용어 매칭 | 양쪽 장점 결합 |
 | **단점** | 정확한 용어 놓칠 수 있음 | 의미적 유사성 미반영 | 2배 연산 비용 |
-| **over-fetch** | limit * 3 (필터 시) | limit * 3 (필터 시) | limit * 2 (항상) |
-| **점수 범위** | 0~1 | ts_rank 원본 | 0~1 (정규화) |
+| **over-fetch** | 없음 | 없음 | `min(max(limit * 4, 20), 100)` |
+| **점수 범위** | 0~1 similarity | ts_rank 원본 | weighted sum (semantic 0.7 + keyword 0.3) |
 | **권장 사용** | 자연어 질문 | 정확한 키워드 | 종합 검색 (MCP 기본 권장) |
 
 ---
@@ -616,3 +579,36 @@ Document ID: chunk-uuid-1
 ```
 
 > **참조**: `mcpserver/mcp_sse_server.py` 라인 240-246. SSE 서버는 Markdown 형식의 텍스트를 반환한다.
+
+---
+
+## 12. Hybrid Search Benchmark
+
+Production ranking logic should not be changed only from one-off manual searches.
+Use the benchmark script to compare current REST behavior with exploratory
+threshold and offline fusion variants.
+
+```bash
+uv run python scripts/benchmark_hybrid_search.py \
+  --collection-name agentpaper \
+  --format table
+```
+
+If multiple collections share the same name, pass the UUID directly:
+
+```bash
+uv run python scripts/benchmark_hybrid_search.py \
+  --collection-id 06bd503e-fd03-4451-8ce7-7c1ee5012584 \
+  --format json \
+  --output benchmark-results.json
+```
+
+Interpretation notes:
+
+- `current_hybrid` is the production REST behavior with the requested `--limit`.
+- `current_hybrid_min_070` is an exploratory threshold comparison.
+- `offline_fusion_*` lanes are approximate simulations built from public semantic
+  and keyword REST responses using `--candidate-limit`; they are not production
+  equivalents.
+- By default, expectation failures are reported but exit code remains `0`.
+  Add `--fail-on-regression` when using the benchmark as a gate.

@@ -13,6 +13,9 @@ class AgenticSearchQuery(BaseModel):
         "hybrid", description="Search algorithm"
     )
     search_limit: int = Field(5, ge=1, le=50, description="Max documents per retrieval")
+    min_score: float | None = Field(
+        None, ge=0, le=1, description="Minimum relevance score threshold"
+    )
     filter: dict[str, Any] | None = Field(None, description="Metadata filter")
     max_rewrites: int = Field(3, ge=0, le=10, description="Max query rewrite attempts")
     llm_provider: str | None = Field(None, description="LLM provider override")
@@ -35,3 +38,6 @@ class AgenticSearchResult(BaseModel):
     )
     rewrite_count: int = Field(0, description="Number of rewrites performed")
     error: str | None = Field(None, description="Error message if failed")
+    no_context_found: bool = Field(
+        default=False, description="True when no relevant context was found"
+    )

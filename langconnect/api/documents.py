@@ -5,12 +5,13 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from langchain_core.documents import Document
 from pydantic import TypeAdapter, ValidationError
+
 from langconnect.database.collections import Collection
 from langconnect.models import (
+    DocumentDelete,
     DocumentResponse,
     SearchQuery,
     SearchResult,
-    DocumentDelete,
 )
 from langconnect.services import process_document
 
@@ -214,6 +215,7 @@ async def documents_delete(
     """Deletes a specific document from a collection by its ID.
 
     Args:
+        collection_id: The collection UUID containing the document(s)
         document_id: The ID to delete by (either document ID or file ID)
         delete_by: Specifies whether to delete by 'document_id' (single chunk) or 'file_id' (all chunks from file)
     """
@@ -248,5 +250,6 @@ async def documents_search(
         limit=search_query.limit or 10,
         search_type=search_query.search_type,
         filter=search_query.filter,
+        min_score=search_query.min_score,
     )
     return results

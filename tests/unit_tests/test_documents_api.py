@@ -1,9 +1,105 @@
 import json
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
+import pytest
+from fastapi import HTTPException
+from langchain_core.documents import Document
+from pydantic import ValidationError
+
+from langconnect.database.collections import Collection
+from langconnect.models.document import SearchQuery
 from tests.unit_tests.fixtures import (
     get_async_test_client,
 )
+
+pytestmark = pytest.mark.asyncio
+
+
+class _FakeVectorStore:
+    def __init__(self, results: list[tuple[Document, float]]) -> None:
+        self.results = results
+        self.calls: list[dict[str, object]] = []
+
+    def similarity_search_with_score(
+        self,
+        query: str,
+        k: int,
+        filter: dict[str, object] | None = None,  # noqa: A002
+    ) -> list[tuple[Document, float]]:
+        self.calls.append({"query": query, "k": k, "filter": filter})
+        results = self.results
+        if filter:
+            results = [
+                (doc, distance)
+                for doc, distance in results
+                if all(doc.metadata.get(key) == value for key, value in filter.items())
+            ]
+        return results[:k]
+
+
+class _FakeDbConnection:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+        self.calls: list[tuple[object, ...]] = []
+
+    async def fetch(self, *_args: object) -> list[dict[str, object]]:
+        self.calls.append(_args)
+        limit = int(_args[-1])
+        return self.rows[:limit]
+
+
+def _doc(doc_id: str, content: str, **metadata: object) -> Document:
+    return Document(id=doc_id, page_content=content, metadata=metadata)
+
+
+def _keyword_row(
+    doc_id: object,
+    content: str,
+    score: float,
+    **metadata: object,
+) -> dict[str, object]:
+    return {
+        "id": doc_id,
+        "page_content": content,
+        "metadata": json.dumps(metadata),
+        "score": score,
+    }
+
+
+def _patch_collection_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_details(self: Collection) -> dict[str, object]:
+        return {"uuid": self.collection_id, "table_id": "test_table"}
+
+    monkeypatch.setattr(Collection, "_get_details_or_raise", fake_details)
+
+
+def _patch_vectorstore(
+    monkeypatch: pytest.MonkeyPatch,
+    store: _FakeVectorStore,
+) -> None:
+    monkeypatch.setattr(
+        "langconnect.database.collections.get_vectorstore",
+        lambda *args, **kwargs: store,
+    )
+
+
+def _patch_keyword_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    rows: list[dict[str, object]],
+) -> _FakeDbConnection:
+    connection = _FakeDbConnection(rows)
+
+    @asynccontextmanager
+    async def fake_connection() -> AsyncGenerator[_FakeDbConnection, None]:
+        yield connection
+
+    monkeypatch.setattr(
+        "langconnect.database.collections.get_db_connection",
+        fake_connection,
+    )
+    return connection
 
 
 async def test_documents_create_and_list_and_delete_and_search() -> None:
@@ -52,7 +148,7 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         assert docs[0]["content"] == "Hello world. This is a test document."
 
         # Search documents with a valid query
-        search_payload = {"query": "test document", "limit": 5}
+        search_payload = {"query": "test document", "limit": 5, "min_score": 0}
         search_resp = await client.post(
             f"/collections/{collection_id}/documents/search",
             json=search_payload,
@@ -86,6 +182,345 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         )
         # Should still return success True or 200/204; here assume 200
         assert del_resp2.status_code in (200, 204)
+
+
+async def test_semantic_search_rejects_default_low_score_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default semantic search should not return unrelated nearest neighbors."""
+    _patch_collection_details(monkeypatch)
+    store = _FakeVectorStore([
+        (
+            _doc(
+                "irrelevant-1",
+                "Unrelated biology pathway text without agent content.",
+                source="distractor.pdf",
+            ),
+            0.54,
+        ),
+        (
+            _doc(
+                "irrelevant-2",
+                "Another unrelated chunk about metabolomics.",
+                source="distractor.pdf",
+            ),
+            0.60,
+        ),
+    ])
+    _patch_vectorstore(monkeypatch, store)
+
+    results = await Collection("collection-id").search(
+        "zzzz qwerty asdfgh unrelated nonsense",
+        limit=10,
+        search_type="semantic",
+    )
+
+    assert results == []
+
+
+async def test_semantic_search_rejects_observed_nonsense_score_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default semantic threshold should reject observed nonsense scores near 0.67."""
+    _patch_collection_details(monkeypatch)
+    store = _FakeVectorStore([
+        (
+            _doc(
+                "nonsense-boundary",
+                "Nearest-neighbor text unrelated to the query.",
+                source="distractor.pdf",
+            ),
+            0.4925,  # similarity ~= 0.67
+        ),
+    ])
+    _patch_vectorstore(monkeypatch, store)
+
+    results = await Collection("collection-id").search(
+        "zzzz qwerty asdfgh unrelated nonsense",
+        limit=10,
+        search_type="semantic",
+    )
+
+    assert results == []
+
+
+async def test_semantic_search_allows_explicit_lower_min_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Callers can opt into lower semantic thresholds without changing limit."""
+    _patch_collection_details(monkeypatch)
+    store = _FakeVectorStore([
+        (
+            _doc(
+                "low-score-match",
+                "A weak but caller-accepted semantic match.",
+                source="weak.pdf",
+            ),
+            0.54,
+        ),
+    ])
+    _patch_vectorstore(monkeypatch, store)
+
+    results = await Collection("collection-id").search(
+        "weak match",
+        limit=10,
+        search_type="semantic",
+        min_score=0.5,
+    )
+
+    assert [result["id"] for result in results] == ["low-score-match"]
+
+
+async def test_semantic_search_allows_explicit_boundary_min_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Callers can still opt into accepting a score near the default boundary."""
+    _patch_collection_details(monkeypatch)
+    store = _FakeVectorStore([
+        (
+            _doc(
+                "boundary-match",
+                "A caller-accepted lower confidence semantic match.",
+                source="weak.pdf",
+            ),
+            0.4925,  # similarity ~= 0.67
+        ),
+    ])
+    _patch_vectorstore(monkeypatch, store)
+
+    results = await Collection("collection-id").search(
+        "weak match",
+        limit=10,
+        search_type="semantic",
+        min_score=0.66,
+    )
+
+    assert [result["id"] for result in results] == ["boundary-match"]
+
+
+async def test_semantic_metadata_filter_applies_before_candidate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Filtered semantic results should not depend on unfiltered neighbors."""
+    _patch_collection_details(monkeypatch)
+    distractors = [
+        (
+            _doc(
+                f"distractor-{index}",
+                f"Agent skill distractor from another source {index}",
+                source="other.pdf",
+            ),
+            0.02,
+        )
+        for index in range(30)
+    ]
+    skillfoundry_matches = [
+        (
+            _doc(
+                f"skillfoundry-{index}",
+                f"Agent skill memory repository chunk {index}",
+                source="skillfoundry.pdf",
+            ),
+            0.05,
+        )
+        for index in range(30)
+    ]
+    store = _FakeVectorStore([*distractors, *skillfoundry_matches])
+    _patch_vectorstore(monkeypatch, store)
+
+    limit_10 = await Collection("collection-id").search(
+        "agent skill",
+        limit=10,
+        search_type="semantic",
+        filter={"source": "skillfoundry.pdf"},
+    )
+    limit_50 = await Collection("collection-id").search(
+        "agent skill",
+        limit=50,
+        search_type="semantic",
+        filter={"source": "skillfoundry.pdf"},
+    )
+
+    assert [result["id"] for result in limit_10] == [
+        result["id"] for result in limit_50[:10]
+    ]
+    assert len(limit_10) == 10
+    assert all(
+        result["metadata"]["source"] == "skillfoundry.pdf" for result in limit_10
+    )
+    assert store.calls[0]["filter"] == {"source": "skillfoundry.pdf"}
+
+
+async def test_hybrid_search_rejects_default_low_score_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default hybrid search should not revive weak semantic candidates."""
+    _patch_collection_details(monkeypatch)
+    store = _FakeVectorStore([
+        (
+            _doc(
+                "irrelevant-semantic",
+                "Unrelated nearest-neighbor content.",
+                source="distractor.pdf",
+            ),
+            0.54,
+        ),
+    ])
+    _patch_vectorstore(monkeypatch, store)
+    _patch_keyword_rows(monkeypatch, [])
+
+    results = await Collection("collection-id").search(
+        "zzzz qwerty asdfgh unrelated nonsense",
+        limit=10,
+        search_type="hybrid",
+    )
+
+    assert results == []
+
+
+async def test_hybrid_search_preserves_strong_semantic_match_over_keyword_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hybrid ranking should not demote strong semantic matches via normalization."""
+    _patch_collection_details(monkeypatch)
+    strong_semantic = _doc(
+        "semantic-strong",
+        "Agent skills persist reusable behavior across coding sessions.",
+        source="skillfoundry.pdf",
+    )
+    keyword_only = _doc(
+        "keyword-only",
+        "The word agent appears many times without explaining skills.",
+        source="keyword.pdf",
+    )
+    store = _FakeVectorStore([(strong_semantic, 0.05)])
+    _patch_vectorstore(monkeypatch, store)
+    _patch_keyword_rows(monkeypatch, [
+        _keyword_row(
+            "keyword-only",
+            keyword_only.page_content,
+            10.0,
+            source="keyword.pdf",
+        ),
+        _keyword_row(
+            "semantic-strong",
+            strong_semantic.page_content,
+            1.0,
+            source="skillfoundry.pdf",
+        ),
+    ])
+
+    results = await Collection("collection-id").search(
+        "agent skill",
+        limit=2,
+        search_type="hybrid",
+    )
+
+    assert [result["id"] for result in results] == [
+        "semantic-strong",
+        "keyword-only",
+    ]
+    assert results[1]["score"] == pytest.approx(0.3)
+    assert results[1]["metadata"] == {"source": "keyword.pdf"}
+
+
+async def test_hybrid_search_dedupes_mixed_id_types_and_combines_scores(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Semantic and keyword hits for the same id should return one fused row."""
+    _patch_collection_details(monkeypatch)
+    semantic_doc = _doc(
+        "42",
+        "Semantic content for a shared document id.",
+        source="semantic.pdf",
+    )
+    store = _FakeVectorStore([(semantic_doc, 0.25)])
+    _patch_vectorstore(monkeypatch, store)
+    _patch_keyword_rows(monkeypatch, [
+        _keyword_row(
+            42,
+            "Keyword content for the same shared document id.",
+            2.0,
+            source="keyword.pdf",
+        ),
+        _keyword_row(
+            "keyword-only",
+            "Keyword-only content should remain in hybrid results.",
+            1.0,
+            source="keyword-only.pdf",
+        ),
+    ])
+
+    results = await Collection("collection-id").search(
+        "shared document",
+        limit=10,
+        search_type="hybrid",
+    )
+
+    assert [result["id"] for result in results] == ["42", "keyword-only"]
+    assert results[0]["page_content"] == semantic_doc.page_content
+    assert results[0]["metadata"] == {"source": "semantic.pdf"}
+    assert results[0]["score"] == pytest.approx(0.86)
+    assert results[1]["score"] == pytest.approx(0.15)
+
+
+@pytest.mark.parametrize("search_type", ["semantic", "keyword", "hybrid"])
+async def test_search_rejects_unsupported_metadata_filter_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    search_type: str,
+) -> None:
+    """Unsupported filter operators should fail with a clear HTTP 400."""
+    _patch_collection_details(monkeypatch)
+    _patch_vectorstore(monkeypatch, _FakeVectorStore([]))
+    _patch_keyword_rows(monkeypatch, [])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await Collection("collection-id").search(
+            "agent skill",
+            search_type=search_type,
+            filter={"source": {"$ne": "skillfoundry.pdf"}},
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "Unsupported metadata filter" in str(exc_info.value.detail)
+
+
+@pytest.mark.parametrize("search_type", ["semantic", "keyword", "hybrid"])
+async def test_search_rejects_metadata_filter_keys_pgvector_cannot_apply(
+    monkeypatch: pytest.MonkeyPatch,
+    search_type: str,
+) -> None:
+    """Accepted metadata filter keys should be valid for every search backend."""
+    _patch_collection_details(monkeypatch)
+    _patch_vectorstore(monkeypatch, _FakeVectorStore([]))
+    _patch_keyword_rows(monkeypatch, [])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await Collection("collection-id").search(
+            "agent skill",
+            search_type=search_type,
+            filter={"source-url": "skillfoundry.pdf"},
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "filter field names" in str(exc_info.value.detail)
+
+
+@pytest.mark.parametrize("limit", [0, -1, 101])
+async def test_collection_search_rejects_invalid_limits(limit: int) -> None:
+    """Collection.search should guard direct callers from invalid limits."""
+    with pytest.raises(HTTPException) as exc_info:
+        await Collection("collection-id").search("agent skill", limit=limit)
+
+    assert exc_info.value.status_code == 400
+    assert "limit must be between" in str(exc_info.value.detail)
+
+
+@pytest.mark.parametrize("limit", [0, -1, 101])
+async def test_search_query_rejects_invalid_limits(limit: int) -> None:
+    """REST search requests should validate limit before reaching retrieval."""
+    with pytest.raises(ValidationError):
+        SearchQuery(query="agent skill", limit=limit)
 
 
 async def test_documents_create_with_invalid_metadata_json() -> None:
@@ -468,12 +903,13 @@ async def test_documents_bulk_delete() -> None:
         docs = list_resp.json()
         assert len(docs) == 2
 
-        doc_ids = [doc['id'] for doc in docs]
-        file_ids = [doc['metadata']['file_id'] for doc in docs]
+        doc_ids = [doc["id"] for doc in docs]
+        file_ids = [doc["metadata"]["file_id"] for doc in docs]
 
         # Bulk delete by document_ids
         del_payload_docs = {"document_ids": [doc_ids[0]]}
-        del_resp_docs = await client.delete(
+        del_resp_docs = await client.request(
+            "DELETE",
             f"/collections/{collection_id}/documents",
             json=del_payload_docs,
         )
@@ -487,7 +923,8 @@ async def test_documents_bulk_delete() -> None:
 
         # Bulk delete by file_ids
         del_payload_files = {"file_ids": [file_ids[1]]}
-        del_resp_files = await client.delete(
+        del_resp_files = await client.request(
+            "DELETE",
             f"/collections/{collection_id}/documents",
             json=del_payload_files,
         )

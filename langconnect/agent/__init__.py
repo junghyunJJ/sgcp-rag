@@ -17,13 +17,14 @@ AGENTIC_SEARCH_TIMEOUT = 120  # seconds
 logger = logging.getLogger(__name__)
 
 
-async def run_agentic_search(
+async def run_agentic_search(  # noqa: PLR0913
     question: str,
     collection_id: str,
     *,
     search_type: Literal["semantic", "keyword", "hybrid"] = "hybrid",
     search_limit: int = 5,
     search_filter: dict[str, Any] | None = None,
+    min_score: float | None = None,
     max_rewrites: int | None = None,
     llm_provider: str | None = None,
     llm_model: str | None = None,
@@ -37,6 +38,7 @@ async def run_agentic_search(
         search_type: Search algorithm ("semantic", "keyword", "hybrid").
         search_limit: Max documents per retrieval.
         search_filter: Optional metadata filter dict.
+        min_score: Optional minimum relevance score threshold.
         max_rewrites: Maximum query rewrite attempts (loop guard).
         llm_provider: LLM provider override ("openai" or "google").
         llm_model: LLM model name override.
@@ -64,6 +66,7 @@ async def run_agentic_search(
             "search_type": search_type,
             "search_limit": search_limit,
             "search_filter": search_filter,
+            "min_score": min_score,
             "documents": [],
             "relevant_documents": [],
             "generation": "",
@@ -72,6 +75,7 @@ async def run_agentic_search(
             "max_rewrites": max_rewrites,
             "steps": [],
             "error": None,
+            "no_context_found": False,
         }
 
         result = await asyncio.wait_for(
@@ -86,6 +90,7 @@ async def run_agentic_search(
             "query_rewrites": result.get("query_rewrites", []),
             "rewrite_count": result.get("rewrite_count", 0),
             "error": result.get("error"),
+            "no_context_found": result.get("no_context_found", False),
         }
 
     except Exception as e:
@@ -97,4 +102,5 @@ async def run_agentic_search(
             "query_rewrites": [],
             "rewrite_count": 0,
             "error": str(e),
+            "no_context_found": False,
         }

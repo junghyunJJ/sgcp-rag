@@ -4,19 +4,14 @@ All LLM calls and Collection.search() are mocked —
 no database or API keys required.
 """
 
+import operator
+from typing import Annotated, get_args, get_origin, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
-# Mark all async tests in this module
-pytestmark = pytest.mark.asyncio
-
-from langconnect.agent.state import AgentState
-from langconnect.agent.graders import (
-    GradeAnswer,
-    GradeDocumentRelevance,
-    GradeHallucination,
-)
 from langconnect.agent.nodes import (
     generate,
     grade_documents,
@@ -24,6 +19,10 @@ from langconnect.agent.nodes import (
     retrieve,
     rewrite_query,
 )
+from langconnect.agent.state import AgentState
+
+# Mark all async tests in this module
+pytestmark = pytest.mark.asyncio
 
 
 # --- Fixtures ---
@@ -44,7 +43,7 @@ MOCK_DOCUMENTS = [
 ]
 
 
-def _make_state(**overrides) -> AgentState:
+def _make_state(**overrides: object) -> AgentState:
     """Create a base AgentState with sensible defaults."""
     base = {
         "question": "What is LangGraph?",
@@ -52,6 +51,7 @@ def _make_state(**overrides) -> AgentState:
         "search_type": "hybrid",
         "search_limit": 5,
         "search_filter": None,
+        "min_score": None,
         "documents": [],
         "relevant_documents": [],
         "generation": "",
@@ -60,12 +60,15 @@ def _make_state(**overrides) -> AgentState:
         "max_rewrites": 3,
         "steps": [],
         "error": None,
+        "no_context_found": False,
     }
     base.update(overrides)
     return base
 
 
-def _mock_llm_with_structured_output(binary_score: str):
+def _mock_llm_with_structured_output(
+    binary_score: str,
+) -> tuple[MagicMock, AsyncMock]:
     """Create a mock LLM that returns structured output with given score."""
     mock_result = MagicMock()
     mock_result.binary_score = binary_score
@@ -80,7 +83,7 @@ def _mock_llm_with_structured_output(binary_score: str):
     return mock_llm, mock_chain
 
 
-def _mock_llm_for_generation(answer_text: str):
+def _mock_llm_for_generation(answer_text: str) -> tuple[MagicMock, AsyncMock]:
     """Create a mock LLM for answer generation."""
     mock_result = MagicMock()
     mock_result.content = answer_text
@@ -102,6 +105,35 @@ def test_agent_state_defaults():
     assert state["rewrite_count"] == 0
     assert state["max_rewrites"] == 3
     assert state["steps"] == []
+    assert state["min_score"] is None
+    assert state["no_context_found"] is False
+
+
+@pytest.mark.parametrize("field_name", ["steps", "query_rewrites"])
+async def test_agent_state_uses_reducers_for_accumulated_lists(field_name: str):
+    """LangGraph should accumulate trace lists without each node copying state."""
+    hints = get_type_hints(AgentState, include_extras=True)
+
+    assert get_origin(hints[field_name]) is Annotated
+    assert operator.add in get_args(hints[field_name])
+
+
+def test_agentic_search_query_accepts_bounded_min_score():
+    """AgenticSearchQuery should accept min_score in the 0..1 range."""
+    from langconnect.models.agentic import AgenticSearchQuery
+
+    assert AgenticSearchQuery(question="test", min_score=0).min_score == 0
+    assert AgenticSearchQuery(question="test", min_score=0.75).min_score == 0.75
+    assert AgenticSearchQuery(question="test", min_score=1).min_score == 1
+
+
+@pytest.mark.parametrize("min_score", [-0.1, 1.1])
+def test_agentic_search_query_rejects_out_of_range_min_score(min_score):
+    """AgenticSearchQuery should bound min_score to 0..1."""
+    from langconnect.models.agentic import AgenticSearchQuery
+
+    with pytest.raises(ValidationError):
+        AgenticSearchQuery(question="test", min_score=min_score)
 
 
 # --- Node Tests ---
@@ -124,6 +156,26 @@ async def test_retrieve_node(mock_collection_class):
         limit=5,
         search_type="hybrid",
         filter=None,
+        min_score=None,
+    )
+
+
+@patch("langconnect.agent.nodes.Collection")
+async def test_retrieve_node_forwards_min_score(mock_collection_class):
+    """Retrieve node should pass min_score to Collection.search()."""
+    mock_instance = AsyncMock()
+    mock_instance.search = AsyncMock(return_value=MOCK_DOCUMENTS)
+    mock_collection_class.return_value = mock_instance
+
+    state = _make_state(min_score=0.82)
+    await retrieve(state)
+
+    mock_instance.search.assert_awaited_once_with(
+        "What is LangGraph?",
+        limit=5,
+        search_type="hybrid",
+        filter=None,
+        min_score=0.82,
     )
 
 
@@ -148,7 +200,7 @@ async def test_grade_documents_partial_relevant():
     """Only relevant documents should be kept."""
     call_count = 0
 
-    async def side_effect(*args, **kwargs):
+    async def side_effect(*args: object, **kwargs: object) -> MagicMock:
         nonlocal call_count
         call_count += 1
         score = "yes" if call_count == 1 else "no"
@@ -190,6 +242,25 @@ async def test_generate_node():
     assert "generate:" in result["steps"][-1]
 
 
+async def test_no_context_node_sets_terminal_error():
+    """No-context terminal node should clear generated content and documents."""
+    from langconnect.agent.nodes import no_context
+
+    state = _make_state(
+        generation="stale answer",
+        relevant_documents=MOCK_DOCUMENTS,
+        steps=["grade_documents: 0/2 relevant"],
+    )
+
+    result = await no_context(state)
+
+    assert result["error"] == "no_relevant_context"
+    assert result["generation"] == ""
+    assert result["relevant_documents"] == []
+    assert result["no_context_found"] is True
+    assert result["steps"][-1] == "no_context: no relevant documents found"
+
+
 async def test_rewrite_query_node():
     """Rewrite node should produce a new question and increment counter."""
     mock_result = MagicMock()
@@ -210,7 +281,9 @@ async def test_rewrite_query_node():
 
     assert result["question"] == "How does LangGraph work for building agents?"
     assert result["rewrite_count"] == 2
-    assert len(result["query_rewrites"]) == 2
+    assert result["query_rewrites"] == [
+        "How does LangGraph work for building agents?"
+    ]
     assert "rewrite_query:" in result["steps"][-1]
 
 
@@ -305,17 +378,18 @@ def test_route_after_grading_no_relevant_docs():
 
 
 def test_route_after_grading_max_rewrites_reached():
-    """Should force generate when max rewrites reached even without relevant docs."""
+    """Should route to no_context when max rewrites reached without relevant docs."""
     from langconnect.agent.graph import _route_after_grading
 
     state = _make_state(relevant_documents=[], rewrite_count=3, max_rewrites=3)
-    assert _route_after_grading(state) == "generate"
+    assert _route_after_grading(state) == "no_context"
 
 
 def test_route_after_generation_check_passed():
     """Should route to END when generation passes."""
-    from langconnect.agent.graph import _route_after_generation_check
     from langgraph.graph import END
+
+    from langconnect.agent.graph import _route_after_generation_check
 
     state = _make_state(steps=["grade_generation: PASSED both checks"])
     assert _route_after_generation_check(state) == END
@@ -335,8 +409,9 @@ def test_route_after_generation_check_failed_with_retries():
 
 def test_route_after_generation_check_failed_max_rewrites():
     """Should route to END when generation fails but no retries left."""
-    from langconnect.agent.graph import _route_after_generation_check
     from langgraph.graph import END
+
+    from langconnect.agent.graph import _route_after_generation_check
 
     state = _make_state(
         steps=["grade_generation: FAILED answer quality check"],
@@ -356,7 +431,7 @@ async def test_run_agentic_search_error_handling():
     with patch(
         "langconnect.agent.build_agentic_rag_graph",
         side_effect=RuntimeError("LLM unavailable"),
-    ):
+    ), patch("langconnect.agent.get_agent_llm", return_value=MagicMock()):
         result = await run_agentic_search(
             question="test?",
             collection_id="fake-uuid",
@@ -365,6 +440,62 @@ async def test_run_agentic_search_error_handling():
     assert result["error"] is not None
     assert "LLM unavailable" in result["error"]
     assert result["generation"] == ""
+
+
+async def test_run_agentic_search_passes_min_score_to_initial_state():
+    """run_agentic_search should propagate min_score into graph state."""
+    from langconnect.agent import run_agentic_search
+
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "generation": "answer",
+            "relevant_documents": [],
+            "steps": [],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "error": None,
+        }
+    )
+
+    with (
+        patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+    ):
+        await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+            min_score=0.73,
+        )
+
+    initial_state = mock_graph.ainvoke.await_args.args[0]
+    assert initial_state["min_score"] == 0.73
+
+
+async def test_agentic_api_passes_min_score_to_runner():
+    """API endpoint should forward request min_score to run_agentic_search()."""
+    from langconnect.api.agentic import agentic_search
+    from langconnect.models.agentic import AgenticSearchQuery
+
+    with patch(
+        "langconnect.api.agentic.run_agentic_search",
+        new=AsyncMock(
+            return_value={
+                "generation": "",
+                "relevant_documents": [],
+                "steps": [],
+                "query_rewrites": [],
+                "rewrite_count": 0,
+                "error": None,
+            }
+        ),
+    ) as mock_runner:
+        await agentic_search(
+            uuid4(),
+            AgenticSearchQuery(question="What is LangGraph?", min_score=0.64),
+        )
+
+    assert mock_runner.await_args.kwargs["min_score"] == 0.64
 
 
 # --- E2E Graph Test ---
@@ -437,7 +568,10 @@ async def test_full_graph_e2e_with_rewrite():
     # second retrieval (after rewrite) → relevant docs
     doc_grade_call = {"count": 0}
 
-    async def doc_grader_side_effect(*args, **kwargs):
+    async def doc_grader_side_effect(
+        *args: object,
+        **kwargs: object,
+    ) -> MagicMock:
         doc_grade_call["count"] += 1
         # First 2 calls (first retrieval): both irrelevant
         # Next 2 calls (after rewrite): both relevant
@@ -490,3 +624,31 @@ async def test_full_graph_e2e_with_rewrite():
     assert len(result["query_rewrites"]) == 1
     assert result["generation"] == "Rewritten answer about LangGraph."
     assert any("PASSED" in step for step in result["steps"])
+
+
+async def test_full_graph_no_context_does_not_generate():
+    """Max rewrites with no relevant docs should terminate without generation."""
+    from langconnect.agent.graph import build_agentic_rag_graph
+
+    mock_doc_grader = AsyncMock()
+    mock_doc_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="no"))
+
+    mock_llm = MagicMock()
+
+    with (
+        patch("langconnect.agent.nodes.Collection") as mock_coll_cls,
+        patch("langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader),
+        patch("langconnect.agent.graph.generate", new_callable=AsyncMock) as mock_generate,
+    ):
+        mock_instance = AsyncMock()
+        mock_instance.search = AsyncMock(return_value=[])
+        mock_coll_cls.return_value = mock_instance
+
+        graph = build_agentic_rag_graph(mock_llm)
+        result = await graph.ainvoke(_make_state(max_rewrites=0))
+
+    mock_generate.assert_not_awaited()
+    assert result["error"] == "no_relevant_context"
+    assert result["generation"] == ""
+    assert result["relevant_documents"] == []
+    assert result["no_context_found"] is True

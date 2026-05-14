@@ -4,7 +4,8 @@ Defines the TypedDict that flows through the LangGraph StateGraph.
 Each node reads from and writes partial updates to this state.
 """
 
-from typing import Any, Literal, TypedDict
+import operator
+from typing import Annotated, Any, Literal, TypedDict
 
 
 class AgentState(TypedDict):
@@ -15,11 +16,13 @@ class AgentState(TypedDict):
     search_type: Literal["semantic", "keyword", "hybrid"]
     search_limit: int
     search_filter: dict[str, Any] | None
+    min_score: float | None
     documents: list[dict[str, Any]]
     relevant_documents: list[dict[str, Any]]
     generation: str
-    query_rewrites: list[str]
+    query_rewrites: Annotated[list[str], operator.add]
     rewrite_count: int
     max_rewrites: int
-    steps: list[str]
+    steps: Annotated[list[str], operator.add]
     error: str | None
+    no_context_found: bool

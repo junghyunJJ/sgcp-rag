@@ -20,6 +20,7 @@ from langconnect.agent.nodes import (
     generate,
     grade_documents,
     grade_generation,
+    no_context,
     retrieve,
     rewrite_query,
 )
@@ -37,8 +38,8 @@ def _route_after_grading(state: AgentState) -> str:
     rewrite_count = state.get("rewrite_count", 0)
     max_rewrites = state.get("max_rewrites", 3)
     if rewrite_count >= max_rewrites:
-        logger.warning("Max rewrites reached with no relevant docs. Generating anyway.")
-        return "generate"
+        logger.warning("Max rewrites reached with no relevant docs. Ending no-context.")
+        return "no_context"
     return "rewrite_query"
 
 
@@ -74,6 +75,7 @@ def build_agentic_rag_graph(llm: BaseChatModel) -> StateGraph:
     graph.add_node("retrieve", retrieve)
     graph.add_node("grade_documents", functools.partial(grade_documents, llm=llm))
     graph.add_node("generate", functools.partial(generate, llm=llm))
+    graph.add_node("no_context", no_context)
     graph.add_node("rewrite_query", functools.partial(rewrite_query, llm=llm))
     graph.add_node("grade_generation", functools.partial(grade_generation, llm=llm))
 
@@ -84,10 +86,15 @@ def build_agentic_rag_graph(llm: BaseChatModel) -> StateGraph:
     graph.add_conditional_edges(
         "grade_documents",
         _route_after_grading,
-        {"generate": "generate", "rewrite_query": "rewrite_query"},
+        {
+            "generate": "generate",
+            "rewrite_query": "rewrite_query",
+            "no_context": "no_context",
+        },
     )
 
     graph.add_edge("generate", "grade_generation")
+    graph.add_edge("no_context", END)
 
     graph.add_conditional_edges(
         "grade_generation",
