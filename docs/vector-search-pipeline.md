@@ -370,7 +370,7 @@ store.similarity_search_with_score(query, k=limit, filter=metadata_filter)
 
 ```mermaid
 flowchart TD
-    A["사용자 질문<br/>'심부전 치료 방법은?'"] --> B["LLM (gpt-5-nano)<br/>3~5개 대안 쿼리 생성"]
+    A["사용자 질문<br/>'심부전 치료 방법은?'"] --> B["Query Expansion LLM<br/>3~5개 대안 쿼리 생성"]
     B --> C["대안 쿼리 1<br/>'심부전의 최신 치료법'"]
     B --> D["대안 쿼리 2<br/>'심부전 약물 치료'"]
     B --> E["대안 쿼리 3<br/>'heart failure treatment options'"]
@@ -383,31 +383,20 @@ flowchart TD
 ### 7.2 구현 상세
 
 ```python
-# mcpserver/mcp_server.py (라인 730-753)
-from langchain_openai import ChatOpenAI
-llm = ChatOpenAI(model="gpt-5-nano", api_key=OPENAI_API_KEY)
+# mcpserver/mcp_server.py
+from langconnect.agent.query_expansion import generate_query_expansions
 
-query_prompt = PromptTemplate(
-    input_variables=["question"],
-    template="""You are an AI language model assistant. Your task is to generate 3 to 5
-different versions of the given user question to retrieve relevant documents from a vector
-database. By generating multiple perspectives on the user question, your goal is to help
-the user overcome some of the limitations of the distance-based similarity search.
-Provide these alternative questions separated by newlines. Do not number them.
-Original question: {question}""",
-)
-
-output_parser = LineListOutputParser()
-chain = query_prompt | llm | output_parser
-queries = await chain.ainvoke({"question": question})
+queries = await generate_query_expansions(question)
 ```
+
+`QUERY_EXPANSION_LLM_PROVIDER=auto`일 때는 `QUERY_EXPANSION_OLLAMA_BASE_URL`(없으면 `OLLAMA_BASE_URL`)의 Ollama 모델(`qwen3.5:35b`)을 먼저 사용하고, 사용할 수 없으면 OpenAI fallback 모델(`gpt-5.4`)을 사용합니다.
 
 ### 7.3 LineListOutputParser
 
 LLM 출력을 줄 단위로 분리하여 쿼리 리스트로 변환한다:
 
 ```python
-# mcpserver/mcp_server.py (라인 92-98)
+# langconnect/agent/query_expansion.py
 class LineListOutputParser(BaseOutputParser[list[str]]):
     def parse(self, text: str) -> list[str]:
         lines = [line.strip() for line in text.strip().split("\n")]

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """LangConnect MCP Server using FastMCP (stdio)"""
 
-import asyncio
 import json
 import mimetypes
 import os
@@ -12,18 +11,17 @@ from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
-from langchain_core.output_parsers import BaseOutputParser
-from langchain_core.prompts import PromptTemplate
-
-
 from fastmcp import FastMCP
+
+from langconnect.agent import query_expansion
+
+LineListOutputParser = query_expansion.LineListOutputParser
+generate_query_expansions = query_expansion.generate_query_expansions
 
 load_dotenv()
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 # Create FastMCP server
 mcp = FastMCP(
@@ -97,16 +95,6 @@ Two approaches are available:
         },
         {"role": "user", "content": f"User's request:\n\n{query}"},
     ]
-
-
-# Output parser for multi-query generation
-class LineListOutputParser(BaseOutputParser[list[str]]):
-    """Output parser for a list of lines."""
-
-    def parse(self, text: str) -> list[str]:
-        # Split into lines, strip whitespace, and remove empties
-        lines = [line.strip() for line in text.strip().split("\n")]
-        return [line for line in lines if line]
 
 
 # HTTP client
@@ -835,43 +823,12 @@ async def multi_query(question: str) -> str:
     Returns:
         str: JSON array string containing 3-5 alternative queries generated from the original question.
              Format: ["query1", "query2", "query3", ...]
-             If OpenAI API key is not configured, returns an error message.
+             If query expansion LLM configuration is invalid, returns an error message.
              If query generation fails, returns an error message with details.
     """
-    if not OPENAI_API_KEY:
-        return json.dumps({"error": "OpenAI API key not configured"})
-
     try:
-        # Initialize LLM
-        # from langchain_google_genai import ChatGoogleGenerativeAI
-        # llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, api_key=GOOGLE_API_KEY)
-
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model="gpt-5-nano", api_key=OPENAI_API_KEY)
-
-        # Create prompt template
-        query_prompt = PromptTemplate(
-            input_variables=["question"],
-            template="""You are an AI language model assistant. Your task is to generate 3 to 5 
-different versions of the given user question to retrieve relevant documents from a vector 
-database. By generating multiple perspectives on the user question, your goal is to help
-the user overcome some of the limitations of the distance-based similarity search. 
-Provide these alternative questions separated by newlines. Do not number them.
-Original question: {question}""",
-        )
-
-        # Create parser
-        output_parser = LineListOutputParser()
-
-        # Create chain
-        chain = query_prompt | llm | output_parser
-
-        # Generate queries
-        queries = await chain.ainvoke({"question": question})
-
-        # Return as JSON array
+        queries = await generate_query_expansions(question)
         return json.dumps(queries, ensure_ascii=False)
-
     except Exception as e:
         return json.dumps({"error": f"Failed to generate queries: {e!s}"})
 

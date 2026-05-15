@@ -182,15 +182,50 @@ async def test_get_health_status(monkeypatch):
     assert "API:" in out
 
 
-async def test_multi_query_no_key():
-    # Without OPENAI_API_KEY
+async def test_multi_query_openai_provider_no_key():
+    # Explicit OpenAI query expansion should report missing credentials.
     monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("QUERY_EXPANSION_LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "")
-    monkeypatch.setattr(mcp_mod, "OPENAI_API_KEY", "")
     out = await multi_query("ask?")
     data = json.loads(out)
     assert "error" in data
+    assert "OpenAI API key" in data["error"]
     monkeypatch.undo()
+
+
+async def test_multi_query_uses_shared_query_expansion_helper(monkeypatch):
+    """stdio MCP multi_query should delegate LLM selection to the shared helper."""
+    captured: list[str] = []
+
+    async def fake_generate(question: str) -> list[str]:
+        captured.append(question)
+        return ["query one", "query two"]
+
+    monkeypatch.setattr(mcp_mod, "generate_query_expansions", fake_generate)
+
+    out = await multi_query("ask?")
+
+    assert json.loads(out) == ["query one", "query two"]
+    assert captured == ["ask?"]
+
+
+async def test_sse_multi_query_uses_shared_query_expansion_helper(monkeypatch):
+    """SSE MCP multi_query should use the same query expansion helper."""
+    import mcpserver.mcp_sse_server as sse_mod
+
+    captured: list[str] = []
+
+    async def fake_generate(question: str) -> list[str]:
+        captured.append(question)
+        return ["sse query"]
+
+    monkeypatch.setattr(sse_mod, "generate_query_expansions", fake_generate)
+
+    out = await sse_mod.multi_query.fn("ask?")
+
+    assert json.loads(out) == ["sse query"]
+    assert captured == ["ask?"]
 
 
 async def test_agentic_search_forwards_wiki_context_and_returns_metadata(monkeypatch):

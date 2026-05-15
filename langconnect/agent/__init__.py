@@ -9,13 +9,179 @@ import logging
 import os
 from typing import Any, Literal
 
-from langconnect.agent.config import get_agent_llm
+import httpx
+
+from langconnect.agent.config import (
+    DEFAULT_AGENT_OLLAMA_MODEL,
+    DEFAULT_AGENT_OPENAI_MODEL,
+    get_agent_llm,
+    get_agent_ollama_base_url,
+    is_ollama_model_available,
+)
 from langconnect.agent.graph import build_agentic_rag_graph
 from langconnect.agent.wiki_context import WikiContextResult, resolve_wiki_context
 
 AGENTIC_SEARCH_TIMEOUT = 120  # seconds
+DEFAULT_AGENT_PROVIDER = "openai"
+AGENT_PROVIDER_AUTO = "auto"
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_llm_provider(provider: str | None = None) -> str:
+    return (
+        provider or os.getenv("AGENT_LLM_PROVIDER", DEFAULT_AGENT_PROVIDER)
+    ).strip().lower()
+
+
+def _agent_ollama_model(model: str | None = None) -> str:
+    return model or os.getenv("AGENT_LLM_MODEL", DEFAULT_AGENT_OLLAMA_MODEL)
+
+
+def _agent_openai_fallback_model() -> str:
+    return os.getenv("AGENT_LLM_OPENAI_MODEL", DEFAULT_AGENT_OPENAI_MODEL)
+
+
+def _format_agentic_result(
+    result: dict[str, Any],
+    wiki_result: WikiContextResult,
+) -> dict[str, Any]:
+    return {
+        "generation": result.get("generation", ""),
+        "relevant_documents": result.get("relevant_documents", []),
+        "steps": result.get("steps", []),
+        "query_rewrites": result.get("query_rewrites", []),
+        "rewrite_count": result.get("rewrite_count", 0),
+        "error": result.get("error"),
+        "no_context_found": result.get("no_context_found", False),
+        "selected_wiki_pages": result.get(
+            "selected_wiki_pages",
+            wiki_result.selected_pages,
+        ),
+        "wiki_context_status": result.get("wiki_context_status")
+        or wiki_result.status,
+    }
+
+
+def _format_agentic_error(
+    error: Exception,
+    wiki_result: WikiContextResult,
+) -> dict[str, Any]:
+    return {
+        "generation": "",
+        "relevant_documents": [],
+        "steps": [f"error: {error!s}"],
+        "query_rewrites": [],
+        "rewrite_count": 0,
+        "error": str(error),
+        "no_context_found": False,
+        "selected_wiki_pages": wiki_result.selected_pages,
+        "wiki_context_status": wiki_result.status,
+    }
+
+
+async def _invoke_agent_graph(
+    *,
+    provider: str,
+    model: str | None,
+    temperature: float | None,
+    initial_state: dict[str, Any],
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    llm = get_agent_llm(
+        provider=provider,
+        model=model,
+        temperature=temperature,
+        base_url=base_url,
+    )
+    graph = build_agentic_rag_graph(llm)
+    return await asyncio.wait_for(
+        graph.ainvoke(initial_state),
+        timeout=AGENTIC_SEARCH_TIMEOUT,
+    )
+
+
+def _url_is_under_base(url: object, base_url: str) -> bool:
+    current = str(url).rstrip("/")
+    expected = base_url.rstrip("/")
+    return current == expected or current.startswith(f"{expected}/")
+
+
+def _safe_getattr(value: object, name: str) -> object | None:
+    try:
+        return getattr(value, name, None)
+    except RuntimeError:
+        return None
+
+
+def _httpx_error_targets_base(error: BaseException, base_url: str) -> bool:
+    for source in (_safe_getattr(error, "request"), _safe_getattr(error, "response")):
+        request = _safe_getattr(source, "request") or source
+        url = _safe_getattr(request, "url")
+        if url is not None and _url_is_under_base(url, base_url):
+            return True
+    return False
+
+
+def _is_agent_ollama_fallback_eligible(
+    error: Exception,
+    base_url: str,
+) -> bool:
+    current: BaseException | None = error
+    while current is not None:
+        if type(current).__module__.startswith("ollama"):
+            return True
+
+        if isinstance(current, httpx.HTTPError) and _httpx_error_targets_base(
+            current,
+            base_url,
+        ):
+            return True
+
+        message = str(current).lower()
+        if "ollama" in message and any(
+            marker in message
+            for marker in ("connect", "failed", "refused", "timeout", "unavailable")
+        ):
+            return True
+
+        current = current.__cause__ or current.__context__
+
+    return False
+
+
+async def _run_agentic_search_auto(
+    *,
+    llm_model: str | None,
+    llm_temperature: float | None,
+    initial_state: dict[str, Any],
+) -> dict[str, Any]:
+    ollama_model = _agent_ollama_model(llm_model)
+    ollama_base_url = get_agent_ollama_base_url()
+
+    if await is_ollama_model_available(ollama_model, ollama_base_url):
+        try:
+            return await _invoke_agent_graph(
+                provider="ollama",
+                model=ollama_model,
+                temperature=llm_temperature,
+                base_url=ollama_base_url,
+                initial_state=initial_state,
+            )
+        except Exception as error:
+            if not _is_agent_ollama_fallback_eligible(error, ollama_base_url):
+                raise
+            logger.warning(
+                "Ollama Agentic RAG failed; falling back to OpenAI: %s",
+                error,
+            )
+
+    return await _invoke_agent_graph(
+        provider="openai",
+        model=_agent_openai_fallback_model(),
+        temperature=llm_temperature,
+        initial_state=initial_state,
+    )
 
 
 async def run_agentic_search(  # noqa: PLR0913
@@ -42,7 +208,7 @@ async def run_agentic_search(  # noqa: PLR0913
         search_filter: Optional metadata filter dict.
         min_score: Optional minimum relevance score threshold.
         max_rewrites: Maximum query rewrite attempts (loop guard).
-        llm_provider: LLM provider override ("openai" or "google").
+        llm_provider: LLM provider override ("auto", "openai", "google", or "ollama").
         llm_model: LLM model name override.
         llm_temperature: LLM temperature override.
         use_wiki_context: Use non-authoritative LLM Wiki context during generation.
@@ -59,14 +225,6 @@ async def run_agentic_search(  # noqa: PLR0913
 
         if use_wiki_context:
             wiki_result = resolve_wiki_context(collection_id, question)
-
-        llm = get_agent_llm(
-            provider=llm_provider,
-            model=llm_model,
-            temperature=llm_temperature,
-        )
-
-        graph = build_agentic_rag_graph(llm)
 
         initial_state = {
             "question": question,
@@ -90,37 +248,26 @@ async def run_agentic_search(  # noqa: PLR0913
             "wiki_context_status": wiki_result.status,
         }
 
-        result = await asyncio.wait_for(
-            graph.ainvoke(initial_state),
-            timeout=AGENTIC_SEARCH_TIMEOUT,
-        )
+        provider = _agent_llm_provider(llm_provider)
+        if provider == AGENT_PROVIDER_AUTO:
+            result = await _run_agentic_search_auto(
+                llm_model=llm_model,
+                llm_temperature=llm_temperature,
+                initial_state=initial_state,
+            )
+        else:
+            result = await _invoke_agent_graph(
+                provider=provider,
+                model=llm_model,
+                temperature=llm_temperature,
+                base_url=get_agent_ollama_base_url()
+                if provider == "ollama"
+                else None,
+                initial_state=initial_state,
+            )
 
-        return {
-            "generation": result.get("generation", ""),
-            "relevant_documents": result.get("relevant_documents", []),
-            "steps": result.get("steps", []),
-            "query_rewrites": result.get("query_rewrites", []),
-            "rewrite_count": result.get("rewrite_count", 0),
-            "error": result.get("error"),
-            "no_context_found": result.get("no_context_found", False),
-            "selected_wiki_pages": result.get(
-                "selected_wiki_pages",
-                wiki_result.selected_pages,
-            ),
-            "wiki_context_status": result.get("wiki_context_status")
-            or wiki_result.status,
-        }
+        return _format_agentic_result(result, wiki_result)
 
     except Exception as e:
         logger.exception("Agentic search failed")
-        return {
-            "generation": "",
-            "relevant_documents": [],
-            "steps": [f"error: {e!s}"],
-            "query_rewrites": [],
-            "rewrite_count": 0,
-            "error": str(e),
-            "no_context_found": False,
-            "selected_wiki_pages": wiki_result.selected_pages,
-            "wiki_context_status": wiki_result.status,
-        }
+        return _format_agentic_error(e, wiki_result)

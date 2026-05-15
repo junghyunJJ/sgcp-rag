@@ -39,6 +39,7 @@ dependencies = [
     "pymupdf>=1.26.3",
     "pymupdf4llm>=0.0.26",
     "langchain-google-genai>=2.1.4",
+    "langchain-ollama>=0.3.0",
 ]
 
 [project.scripts]
@@ -145,4 +146,3 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
-

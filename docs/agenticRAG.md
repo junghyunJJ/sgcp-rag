@@ -266,10 +266,18 @@ multi_query (MCP)               └─ API 호출 → 위 그래프 실행
 ```
 우선순위: API 파라미터 > 환경변수 > 기본값
 
-AGENT_LLM_PROVIDER=openai     →  llm_provider 파라미터로 오버라이드 가능
-AGENT_LLM_MODEL=gpt-4.1-nano  →  llm_model 파라미터로 오버라이드 가능
-AGENT_LLM_TEMPERATURE=0       →  llm_temperature 파라미터로 오버라이드 가능
-AGENT_MAX_REWRITES=3           →  max_rewrites 파라미터로 오버라이드 가능
+AGENT_LLM_PROVIDER=auto          →  llm_provider 파라미터로 오버라이드 가능
+AGENT_LLM_MODEL=qwen3.5:122b     →  auto/ollama에서 우선 사용할 Ollama 모델
+AGENT_LLM_OPENAI_MODEL=gpt-5.4   →  auto fallback에서 사용할 OpenAI 모델
+AGENT_LLM_TEMPERATURE=0          →  llm_temperature 파라미터로 오버라이드 가능
+AGENT_MAX_REWRITES=3             →  max_rewrites 파라미터로 오버라이드 가능
+
+OLLAMA_BASE_URL=http://localhost:5000
+AGENT_OLLAMA_BASE_URL=http://localhost:5001
+QUERY_EXPANSION_OLLAMA_BASE_URL=http://localhost:5000
+QUERY_EXPANSION_LLM_PROVIDER=auto
+QUERY_EXPANSION_LLM_MODEL=qwen3.5:35b
+QUERY_EXPANSION_OPENAI_MODEL=gpt-5.4
 ```
 
 요청별로 다른 LLM을 사용할 수 있습니다:
@@ -283,6 +291,8 @@ AGENT_MAX_REWRITES=3           →  max_rewrites 파라미터로 오버라이드
 }
 ```
 
+Agentic RAG는 `auto`, `openai`, `google`, `ollama` provider를 지원합니다. `auto`는 `AGENT_OLLAMA_BASE_URL`(없으면 `OLLAMA_BASE_URL`)에서 `AGENT_LLM_MODEL`을 먼저 확인하고 실행 중 Ollama LLM 호출이 실패하면 `AGENT_LLM_OPENAI_MODEL`로 한 번 fallback합니다. 명시적으로 `ollama`를 선택하면 fallback하지 않고 오류를 그대로 반환합니다.
+
 ---
 
 ## 9. 모듈 구조
@@ -290,8 +300,8 @@ AGENT_MAX_REWRITES=3           →  max_rewrites 파라미터로 오버라이드
 ```
 langconnect/
   agent/                     # Agentic RAG 패키지
-    __init__.py              # run_agentic_search() 메인 진입점 (97줄)
-    config.py                # LLM 설정 - OpenAI/Google 지원 (48줄)
+    __init__.py              # run_agentic_search() 메인 진입점
+    config.py                # LLM 설정 - OpenAI/Google/Ollama 및 Ollama availability
     state.py                 # AgentState TypedDict (26줄)
     prompts.py               # 프롬프트 템플릿 5종 (65줄)
     graders.py               # 문서/환각/답변 평가기 (69줄)

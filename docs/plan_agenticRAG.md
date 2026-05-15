@@ -70,9 +70,10 @@ class AgentState(TypedDict):
 
 ### 1.2 `langconnect/agent/config.py` — LLM 설정
 
-- 환경변수: `AGENT_LLM_PROVIDER` (openai/google), `AGENT_LLM_MODEL` (gpt-5-nano), `AGENT_LLM_TEMPERATURE` (0)
+- 환경변수: `AGENT_LLM_PROVIDER` (auto/openai/google/ollama), `AGENT_LLM_MODEL`, `AGENT_LLM_OPENAI_MODEL`, `AGENT_OLLAMA_BASE_URL`, `AGENT_LLM_TEMPERATURE` (0)
 - `get_agent_llm(provider, model, temperature)` → `BaseChatModel`
-- OpenAI (`ChatOpenAI`) 및 Google (`ChatGoogleGenerativeAI`) 지원
+- OpenAI (`ChatOpenAI`), Google (`ChatGoogleGenerativeAI`), Ollama (`ChatOllama`) 지원
+- `AGENT_LLM_PROVIDER=auto`일 때는 `AGENT_OLLAMA_BASE_URL`의 Ollama `AGENT_LLM_MODEL`을 먼저 사용하고, Ollama endpoint/model 또는 Ollama LLM 호출이 실패하면 OpenAI `AGENT_LLM_OPENAI_MODEL`로 fallback
 - 요청별 오버라이드 가능 (API 파라미터로)
 
 ### 1.3 `langconnect/agent/prompts.py` — 프롬프트 5종
@@ -177,10 +178,17 @@ APP.include_router(agentic_router)
 ### 4.2 `.env.example` — 환경변수 추가
 
 ```
-AGENT_LLM_PROVIDER=openai
-AGENT_LLM_MODEL=gpt-5-nano
+AGENT_LLM_PROVIDER=auto
+AGENT_LLM_MODEL=qwen3.5:122b
+AGENT_LLM_OPENAI_MODEL=gpt-5.4
 AGENT_LLM_TEMPERATURE=0
 AGENT_MAX_REWRITES=3
+OLLAMA_BASE_URL=http://localhost:5000
+AGENT_OLLAMA_BASE_URL=http://localhost:5001
+QUERY_EXPANSION_OLLAMA_BASE_URL=http://localhost:5000
+QUERY_EXPANSION_LLM_PROVIDER=auto
+QUERY_EXPANSION_LLM_MODEL=qwen3.5:35b
+QUERY_EXPANSION_OPENAI_MODEL=gpt-5.4
 ```
 
 ---

@@ -43,7 +43,17 @@ For Claude Desktop, use the generated config:
 
 - `API_BASE_URL`: LangConnect API server URL (default: `http://localhost:8080`)
 - `SSE_PORT`: Port for SSE server (default: `8765`)
-- `OPENAI_API_KEY`: Required for multi-query generation
+- `OLLAMA_BASE_URL`: Shared fallback Ollama endpoint for local LLMs (default: `http://localhost:5000`)
+- `QUERY_EXPANSION_OLLAMA_BASE_URL`: Query expansion Ollama endpoint; falls back to `OLLAMA_BASE_URL`
+- `AGENT_OLLAMA_BASE_URL`: Agentic RAG Ollama endpoint; falls back to `OLLAMA_BASE_URL`
+- `QUERY_EXPANSION_LLM_PROVIDER`: Query expansion provider: `auto`, `ollama`, or `openai` (default: `auto`)
+- `QUERY_EXPANSION_LLM_MODEL`: Ollama query expansion model (default: `qwen3.5:35b`)
+- `QUERY_EXPANSION_OPENAI_MODEL`: OpenAI fallback model for query expansion (default: `gpt-5.4`)
+- `AGENT_LLM_PROVIDER`: Agentic RAG provider: `auto`, `openai`, `google`, or `ollama`
+- `AGENT_LLM_MODEL`: Agentic RAG Ollama model for `auto`/`ollama` (default: `qwen3.5:122b`)
+- `AGENT_LLM_OPENAI_MODEL`: OpenAI fallback model for Agentic RAG `auto` mode (default: `gpt-5.4`)
+- `AGENT_LLM_TEMPERATURE`: Agentic RAG LLM temperature (default: `0`)
+- `OPENAI_API_KEY`: Required only when OpenAI is selected or used as fallback
 
 ## Testing with MCP Inspector
 

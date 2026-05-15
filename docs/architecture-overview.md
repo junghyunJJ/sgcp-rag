@@ -262,7 +262,7 @@ graph LR
 | 리소스 | `resource://how-to-use-langconnect-rag-mcp` | 없음 |
 | 프롬프트 | `rag-prompt` | 없음 |
 | 베이스 클래스 | 독립 (FastMCP 직접 사용) | 독립 (FastMCP 직접 사용) |
-| Multi-Query LLM | `gpt-5-nano` (OpenAI) | `gpt-5-nano` (OpenAI) |
+| Multi-Query LLM | `.env` 기반 query expansion helper | `.env` 기반 query expansion helper |
 
 > **참조**: `base_mcp_server.py`는 별도의 베이스 클래스(`BaseMCPServer`)를 정의하지만, 현재 stdio/SSE 서버는 이를 상속하지 않고 독립적으로 FastMCP를 사용한다. `BaseMCPServer`는 미들웨어(ErrorHandling, Timing, Logging, RateLimiting)를 포함하는 고급 구현이다.
 

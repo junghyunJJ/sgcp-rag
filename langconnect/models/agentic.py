@@ -27,7 +27,9 @@ class AgenticSearchQuery(BaseModel):
     )
     filter: dict[str, Any] | None = Field(None, description="Metadata filter")
     max_rewrites: int = Field(3, ge=0, le=10, description="Max query rewrite attempts")
-    llm_provider: str | None = Field(None, description="LLM provider override")
+    llm_provider: str | None = Field(
+        None, description="LLM provider override: auto, openai, google, or ollama"
+    )
     llm_model: str | None = Field(None, description="LLM model override")
     llm_temperature: float | None = Field(
         None, ge=0, le=2, description="LLM temperature override"

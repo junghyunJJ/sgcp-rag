@@ -11,9 +11,8 @@ import mcpserver.mcp_server as mcp_mod
 
 @pytest.fixture(autouse=True)
 def clear_env(monkeypatch):
-    # Clear environment keys and module-level constants
+    # Clear real credentials loaded from .env.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(mcp_mod, "OPENAI_API_KEY", "")
 
 
 @pytest.fixture

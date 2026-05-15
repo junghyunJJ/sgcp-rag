@@ -5,10 +5,11 @@ no database or API keys required.
 """
 
 import operator
-from typing import Annotated, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, get_args, get_origin, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -626,6 +627,264 @@ async def test_run_agentic_search_preserves_finite_wiki_status_on_error():
     assert result["error"] == "graph unavailable"
     assert result["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
     assert result["wiki_context_status"] == "selected"
+
+
+async def test_run_agentic_search_auto_falls_back_when_ollama_unavailable():
+    """Auto provider should use OpenAI when the configured Ollama model is absent."""
+    import os
+
+    from langconnect.agent import run_agentic_search
+
+    llm_calls: list[dict[str, object]] = []
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "generation": "fallback answer",
+            "relevant_documents": [],
+            "steps": [],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "error": None,
+        }
+    )
+
+    def fake_get_agent_llm(**kwargs: object) -> MagicMock:
+        llm_calls.append(kwargs)
+        return MagicMock()
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AGENT_LLM_PROVIDER": "auto",
+                "AGENT_LLM_MODEL": "qwen3.5:122b",
+                "AGENT_LLM_OPENAI_MODEL": "gpt-5.4",
+                "OPENAI_API_KEY": "test-key",
+            },
+        ),
+        patch(
+            "langconnect.agent.is_ollama_model_available",
+            new=AsyncMock(return_value=False),
+        ) as mock_available,
+        patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+        )
+
+    assert result["generation"] == "fallback answer"
+    mock_available.assert_awaited_once_with("qwen3.5:122b", "http://localhost:5000")
+    assert [(call["provider"], call["model"]) for call in llm_calls] == [
+        ("openai", "gpt-5.4")
+    ]
+
+
+async def test_run_agentic_search_auto_uses_agent_ollama_base_url():
+    """Auto provider should check and invoke the dedicated Agentic RAG Ollama URL."""
+    import os
+
+    from langconnect.agent import run_agentic_search
+
+    llm_calls: list[dict[str, object]] = []
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "generation": "ollama answer",
+            "relevant_documents": [],
+            "steps": [],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "error": None,
+        }
+    )
+
+    def fake_get_agent_llm(**kwargs: object) -> MagicMock:
+        llm_calls.append(kwargs)
+        return MagicMock()
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AGENT_LLM_PROVIDER": "auto",
+                "AGENT_LLM_MODEL": "qwen3.5:122b",
+                "AGENT_OLLAMA_BASE_URL": "http://localhost:6200",
+                "OLLAMA_BASE_URL": "http://localhost:5000",
+                "OPENAI_API_KEY": "test-key",
+            },
+        ),
+        patch(
+            "langconnect.agent.is_ollama_model_available",
+            new=AsyncMock(return_value=True),
+        ) as mock_available,
+        patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+        )
+
+    assert result["generation"] == "ollama answer"
+    mock_available.assert_awaited_once_with("qwen3.5:122b", "http://localhost:6200")
+    assert [
+        (call["provider"], call["model"], call["base_url"]) for call in llm_calls
+    ] == [("ollama", "qwen3.5:122b", "http://localhost:6200")]
+
+
+async def test_run_agentic_search_auto_retries_openai_after_ollama_llm_error():
+    """Auto provider should retry once with OpenAI after an Ollama LLM failure."""
+    import os
+
+    from langconnect.agent import run_agentic_search
+
+    llm_calls: list[dict[str, object]] = []
+
+    def fake_get_agent_llm(**kwargs: object) -> dict[str, object]:
+        llm_calls.append(kwargs)
+        return {"provider": kwargs["provider"], "model": kwargs["model"]}
+
+    def fake_build_graph(llm: dict[str, object]) -> AsyncMock:
+        mock_graph = AsyncMock()
+
+        async def fake_ainvoke(state: dict[str, Any]) -> dict[str, Any]:
+            if llm["provider"] == "ollama":
+                raise httpx.ConnectError("Ollama endpoint is unavailable")
+            return {
+                "generation": "fallback answer",
+                "relevant_documents": [],
+                "steps": state["steps"],
+                "query_rewrites": [],
+                "rewrite_count": 0,
+                "error": None,
+            }
+
+        mock_graph.ainvoke = AsyncMock(side_effect=fake_ainvoke)
+        return mock_graph
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AGENT_LLM_PROVIDER": "auto",
+                "AGENT_LLM_MODEL": "qwen3.5:122b",
+                "AGENT_LLM_OPENAI_MODEL": "gpt-5.4",
+                "OPENAI_API_KEY": "test-key",
+            },
+        ),
+        patch(
+            "langconnect.agent.is_ollama_model_available",
+            new=AsyncMock(return_value=True),
+        ),
+        patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
+        patch("langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+        )
+
+    assert result["generation"] == "fallback answer"
+    assert [(call["provider"], call["model"]) for call in llm_calls] == [
+        ("ollama", "qwen3.5:122b"),
+        ("openai", "gpt-5.4"),
+    ]
+
+
+async def test_run_agentic_search_auto_does_not_hide_non_llm_errors():
+    """Auto provider should not retry retrieval or graph errors unrelated to Ollama."""
+    import os
+
+    from langconnect.agent import run_agentic_search
+
+    llm_calls: list[dict[str, object]] = []
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(side_effect=RuntimeError("database unavailable"))
+
+    def fake_get_agent_llm(**kwargs: object) -> MagicMock:
+        llm_calls.append(kwargs)
+        return MagicMock()
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AGENT_LLM_PROVIDER": "auto",
+                "AGENT_LLM_MODEL": "qwen3.5:122b",
+                "AGENT_LLM_OPENAI_MODEL": "gpt-5.4",
+                "OPENAI_API_KEY": "test-key",
+            },
+        ),
+        patch(
+            "langconnect.agent.is_ollama_model_available",
+            new=AsyncMock(return_value=True),
+        ),
+        patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+        )
+
+    assert result["error"] == "database unavailable"
+    assert [(call["provider"], call["model"]) for call in llm_calls] == [
+        ("ollama", "qwen3.5:122b")
+    ]
+
+
+async def test_run_agentic_search_auto_does_not_retry_unrelated_http_errors():
+    """Auto provider should not treat non-Ollama HTTP failures as LLM failures."""
+    import os
+
+    from langconnect.agent import run_agentic_search
+
+    llm_calls: list[dict[str, object]] = []
+    request = httpx.Request("GET", "https://api.example.test/search")
+    response = httpx.Response(503, request=request)
+    http_error = httpx.HTTPStatusError(
+        "external service unavailable",
+        request=request,
+        response=response,
+    )
+
+    def fake_get_agent_llm(**kwargs: object) -> dict[str, object]:
+        llm_calls.append(kwargs)
+        return {"provider": kwargs["provider"], "model": kwargs["model"]}
+
+    def fake_build_graph(llm: dict[str, object]) -> AsyncMock:
+        mock_graph = AsyncMock()
+        mock_graph.ainvoke = AsyncMock(side_effect=http_error)
+        return mock_graph
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AGENT_LLM_PROVIDER": "auto",
+                "AGENT_LLM_MODEL": "qwen3.5:122b",
+                "AGENT_LLM_OPENAI_MODEL": "gpt-5.4",
+                "OPENAI_API_KEY": "test-key",
+            },
+        ),
+        patch(
+            "langconnect.agent.is_ollama_model_available",
+            new=AsyncMock(return_value=True),
+        ),
+        patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
+        patch("langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+        )
+
+    assert result["error"] == "external service unavailable"
+    assert [(call["provider"], call["model"]) for call in llm_calls] == [
+        ("ollama", "qwen3.5:122b")
+    ]
 
 
 async def test_agentic_api_passes_min_score_to_runner():
