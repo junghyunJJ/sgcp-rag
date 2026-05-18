@@ -18,7 +18,7 @@ WikiContextStatus = Literal[
     "invalid_schema",
 ]
 
-DEFAULT_WIKI_CONTEXT_DIR = Path("omx_wiki/collections")
+DEFAULT_WIKI_CONTEXT_DIR = Path("llm_wiki/collections")
 WIKI_CONTEXT_DIR_ENV = "LANGCONNECT_WIKI_CONTEXT_DIR"
 MAX_SELECTED_PAGES = 3
 LOW_SIGNAL_TOKENS = {

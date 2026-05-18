@@ -14,6 +14,7 @@ from langconnect.models import (
     SearchResult,
 )
 from langconnect.services import process_document
+from langconnect.services.llm_wiki import rebuild_llm_wiki
 
 # Create a TypeAdapter that enforces “list of dict”
 _metadata_adapter = TypeAdapter(list[dict[str, Any]])
@@ -167,6 +168,23 @@ async def documents_create(
             "message": success_message,
             "added_chunk_ids": added_ids,
         }
+
+        try:
+            wiki_result = await rebuild_llm_wiki(str(collection_id))
+        except Exception as wiki_exc:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "success": False,
+                    "error": "documents_indexed_wiki_rebuild_failed",
+                    "message": "Documents were indexed, but LLM Wiki rebuild failed.",
+                    "documents_indexed": True,
+                    "added_chunk_ids": added_ids,
+                    "wiki_rebuild_error": str(wiki_exc),
+                },
+            )
+
+        response_data["llm_wiki"] = wiki_result.model_dump(mode="json")
 
         if failed_files:
             response_data["warnings"] = (

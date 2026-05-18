@@ -16,7 +16,8 @@ from langconnect.agent import query_expansion
 LineListOutputParser = query_expansion.LineListOutputParser
 generate_query_expansions = query_expansion.generate_query_expansions
 
-load_dotenv()
+if os.getenv("PYTHON_DOTENV_DISABLED") != "1":
+    load_dotenv()
 
 
 # Configuration
@@ -298,6 +299,32 @@ async def agentic_search(
             "selected_wiki_pages": [],
             "wiki_context_status": "disabled",
         })
+
+
+@mcp.tool
+async def rebuild_llm_wiki(
+    collection_id: str,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+) -> str:
+    """Rebuild generated LLM Wiki artifacts for a collection through REST."""
+    payload = {
+        key: value
+        for key, value in {
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "llm_temperature": llm_temperature,
+        }.items()
+        if value is not None
+    }
+    result = await client.request(
+        "POST",
+        f"/collections/{collection_id}/llm-wiki/rebuild",
+        timeout=300.0,
+        json=payload,
+    )
+    return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool

@@ -1,5 +1,6 @@
 import json
 
+from langconnect.agent import wiki_context
 from langconnect.agent.wiki_context import resolve_wiki_context
 
 
@@ -191,6 +192,11 @@ def test_resolve_wiki_context_uses_env_override(tmp_path, monkeypatch):
 
     assert result.status == "selected"
     assert [page["id"] for page in result.selected_pages] == ["alpha"]
+
+
+def test_default_wiki_context_dir_points_to_llm_wiki_collections():
+    """Default runtime packs live under llm_wiki/collections."""
+    assert wiki_context.DEFAULT_WIKI_CONTEXT_DIR.as_posix() == "llm_wiki/collections"
 
 
 def test_resolve_wiki_context_rejects_unsafe_collection_id(tmp_path):
