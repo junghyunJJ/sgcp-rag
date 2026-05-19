@@ -125,6 +125,27 @@ class LangConnectClient:
 client = LangConnectClient(API_BASE_URL)
 
 
+def _delete_partial_success_message(
+    exc: httpx.HTTPStatusError,
+    collection_id: str,
+) -> str | None:
+    try:
+        detail = exc.response.json().get("detail", {})
+    except ValueError:
+        return None
+    if not isinstance(detail, dict):
+        return None
+    if detail.get("error") != "documents_deleted_wiki_rebuild_failed":
+        return None
+    deleted_count = detail.get("deleted_count", "unknown")
+    error_id = detail.get("error_id", "unknown")
+    return (
+        "Document deletion succeeded, but LLM Wiki rebuild failed. "
+        f"Deleted count: {deleted_count}. Error ID: {error_id}. "
+        f"Run rebuild_llm_wiki({collection_id!r}) to retry."
+    )
+
+
 # Helper function for file path validation
 def validate_file_path(file_path: str) -> Path:
     """Validate and resolve file path safely.
@@ -521,11 +542,11 @@ async def add_documents_from_files(
             else:
                 # Single file path as string (not JSON)
                 file_paths = [file_paths]
-                print(f"[MCP DEBUG] Wrapped single path in list", file=sys.stderr, flush=True)
+                print("[MCP DEBUG] Wrapped single path in list", file=sys.stderr, flush=True)
         except json.JSONDecodeError:
             # Single file path as plain string
             file_paths = [file_paths]
-            print(f"[MCP DEBUG] Not JSON, wrapped in list", file=sys.stderr, flush=True)
+            print("[MCP DEBUG] Not JSON, wrapped in list", file=sys.stderr, flush=True)
 
     if not isinstance(file_paths, list):
         error_msg = f"Error: file_paths must be a list or string, got {type(file_paths).__name__}"
@@ -561,7 +582,7 @@ async def add_documents_from_files(
     if not validated_files:
         error_msg = "Failed to validate any files."
         if failed_files:
-            error_msg += f"\nFailed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
+            error_msg += "\nFailed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
         return error_msg
 
     # Prepare files for upload
@@ -631,7 +652,7 @@ async def add_documents_from_files(
             )
 
             if failed_files:
-                message += f"\n\nWarning - Failed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
+                message += "\n\nWarning - Failed files:\n" + "\n".join(f"  - {f}" for f in failed_files)
 
             if result.get("warnings"):
                 message += f"\n\nAPI warnings: {result['warnings']}"
@@ -650,7 +671,7 @@ async def add_documents_from_files(
     except httpx.HTTPError as e:
         error_msg = f"HTTP error during upload: {str(e)}"
         print(f"[MCP ERROR] {error_msg}", file=sys.stderr, flush=True)
-        if hasattr(e, 'response') and e.response is not None:
+        if hasattr(e, "response") and e.response is not None:
             print(f"[MCP ERROR] Response: {e.response.text}", file=sys.stderr, flush=True)
         return error_msg
     except Exception as e:
@@ -683,9 +704,15 @@ async def delete_document(collection_id: str, document_id: str) -> str:
         str: Success message confirming the document deletion.
              Format: "Document document-id deleted successfully!"
     """
-    await client.request(
-        "DELETE", f"/collections/{collection_id}/documents/{document_id}"
-    )
+    try:
+        await client.request(
+            "DELETE", f"/collections/{collection_id}/documents/{document_id}"
+        )
+    except httpx.HTTPStatusError as exc:
+        message = _delete_partial_success_message(exc, collection_id)
+        if message:
+            return message
+        raise
     return f"Document {document_id} deleted successfully!"
 
 

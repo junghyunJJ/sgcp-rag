@@ -58,6 +58,12 @@ COPY --from=builder --chown=langconnect:langconnect /app/.venv /app/.venv
 # Copy application code
 COPY --chown=langconnect:langconnect . .
 
+# Runtime-generated LLM Wiki artifacts are written under the app working dir.
+# Ensure the non-root runtime user can create/update them even when the source
+# tree did not include an llm_wiki directory at image build time.
+RUN mkdir -p /app/llm_wiki && \
+    chown -R langconnect:langconnect /app/llm_wiki
+
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

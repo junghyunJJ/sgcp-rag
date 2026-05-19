@@ -1,6 +1,6 @@
 import logging
-from typing import Any
-from uuid import UUID
+from typing import Annotated, Any
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from langchain_core.documents import Document
@@ -23,6 +23,46 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
 
+
+async def _rebuild_llm_wiki_after_delete_or_raise(
+    collection_id: UUID,
+    *,
+    deleted_count: int,
+) -> None:
+    """Rebuild delete-mutated wiki artifacts or raise a partial-success HTTP 500.
+
+    Raises:
+        HTTPException: When deletion succeeded but the follow-up wiki rebuild failed.
+        asyncio.CancelledError and other BaseException subclasses are intentionally
+        not caught.
+    """
+    try:
+        await rebuild_llm_wiki(str(collection_id))
+    except Exception as wiki_exc:
+        error_id = uuid4().hex
+        logger.exception(
+            "llm_wiki_rebuild_failed_after_delete",
+            extra={
+                "collection_id": str(collection_id),
+                "deleted_count": deleted_count,
+                "error_id": error_id,
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": "documents_deleted_wiki_rebuild_failed",
+                "message": "Documents were deleted, but LLM Wiki rebuild failed.",
+                "documents_deleted": True,
+                "deleted_count": deleted_count,
+                "wiki_rebuild_error": "internal_error",
+                "error_id": error_id,
+                "recovery": "Call rebuild_llm_wiki(collection_id) to retry.",
+            },
+        ) from wiki_exc
+
+
 @router.delete(
     "/collections/{collection_id}/documents",
     response_model=dict[str, Any],
@@ -32,22 +72,24 @@ async def documents_bulk_delete(
     delete_request: DocumentDelete,
 ):
     """Deletes multiple documents from a collection by their IDs or file IDs."""
-    collection = Collection(collection_id=str(collection_id))
-
     if not delete_request.document_ids and not delete_request.file_ids:
         raise HTTPException(
             status_code=400,
             detail="Either document_ids or file_ids must be provided.",
         )
 
+    collection = Collection(collection_id=str(collection_id))
     deleted_count = await collection.delete_many(
         document_ids=delete_request.document_ids,
         file_ids=delete_request.file_ids,
     )
+    if deleted_count > 0:
+        await _rebuild_llm_wiki_after_delete_or_raise(
+            collection_id,
+            deleted_count=deleted_count,
+        )
 
     return {"success": True, "deleted_count": deleted_count}
-
-
 
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -226,9 +268,10 @@ async def documents_list(
 async def documents_delete(
     collection_id: UUID,
     document_id: str,
-    delete_by: str = Query(
-        "document_id", description="Delete by 'document_id' or 'file_id'"
-    ),
+    delete_by: Annotated[
+        str,
+        Query(description="Delete by 'document_id' or 'file_id'"),
+    ] = "document_id",
 ):
     """Deletes a specific document from a collection by its ID.
 
@@ -237,15 +280,23 @@ async def documents_delete(
         document_id: The ID to delete by (either document ID or file ID)
         delete_by: Specifies whether to delete by 'document_id' (single chunk) or 'file_id' (all chunks from file)
     """
+    if delete_by not in {"document_id", "file_id"}:
+        raise HTTPException(
+            status_code=400,
+            detail="delete_by must be either 'document_id' or 'file_id'.",
+        )
+
     collection = Collection(collection_id=str(collection_id))
-
     if delete_by == "file_id":
-        success = await collection.delete(file_id=document_id)
+        deleted_count = await collection.delete(file_id=document_id)
     else:  # Default to document_id
-        success = await collection.delete(document_id=document_id)
+        deleted_count = await collection.delete(document_id=document_id)
 
-    if not success:
-        raise HTTPException(status_code=404, detail="Failed to delete document.")
+    if deleted_count > 0:
+        await _rebuild_llm_wiki_after_delete_or_raise(
+            collection_id,
+            deleted_count=deleted_count,
+        )
 
     return {"success": True}
 

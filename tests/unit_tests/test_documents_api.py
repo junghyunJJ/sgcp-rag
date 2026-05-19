@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -7,6 +8,7 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from httpx import ASGITransport, AsyncClient
 from langchain_core.documents import Document
 from pydantic import ValidationError
 
@@ -43,14 +45,25 @@ class _FakeVectorStore:
 
 
 class _FakeDbConnection:
-    def __init__(self, rows: list[dict[str, object]]) -> None:
+    def __init__(
+        self,
+        rows: list[dict[str, object]],
+        execute_results: list[str] | None = None,
+    ) -> None:
         self.rows = rows
+        self.execute_results = execute_results or []
         self.calls: list[tuple[object, ...]] = []
 
     async def fetch(self, *_args: object) -> list[dict[str, object]]:
         self.calls.append(_args)
         limit = int(_args[-1])
         return self.rows[:limit]
+
+    async def execute(self, *_args: object) -> str:
+        self.calls.append(_args)
+        if not self.execute_results:
+            return "DELETE 0"
+        return self.execute_results.pop(0)
 
 
 def _doc(doc_id: str, content: str, **metadata: object) -> Document:
@@ -134,15 +147,466 @@ def _upload_file(name: str = "doc.txt", content: bytes = b"hello") -> UploadFile
     return UploadFile(filename=name, file=BytesIO(content))
 
 
+def _patch_collection_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    execute_results: list[str],
+) -> _FakeDbConnection:
+    connection = _FakeDbConnection([], execute_results=execute_results)
+
+    @asynccontextmanager
+    async def fake_connection() -> AsyncGenerator[_FakeDbConnection, None]:
+        yield connection
+
+    monkeypatch.setattr(
+        "langconnect.database.collections.get_db_connection",
+        fake_connection,
+    )
+    return connection
+
+
+async def test_collection_delete_returns_deleted_count_for_document_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Collection.delete should return a count for document-id deletes."""
+    _patch_collection_execute(monkeypatch, ["DELETE 1"])
+
+    result = await Collection("collection-1").delete(document_id="doc-a")
+
+    assert type(result) is int
+    assert result == 1
+
+
+async def test_collection_delete_returns_deleted_count_for_file_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Collection.delete should return a count for file-id deletes."""
+    _patch_collection_execute(monkeypatch, ["DELETE 3"])
+
+    result = await Collection("collection-1").delete(file_id="file-a")
+
+    assert type(result) is int
+    assert result == 3
+
+
+async def test_documents_delete_rebuilds_after_document_id_delete_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Document-id delete should await a collection-scoped wiki rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    events: list[str] = []
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            assert kwargs == {"document_id": "doc-a"}
+            events.append("deleted")
+            return 1
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        events.append("rebuilt")
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_delete(
+        collection_id=collection_id,
+        document_id="doc-a",
+        delete_by="document_id",
+    )
+
+    assert response == {"success": True}
+    assert set(response.keys()) == {"success"}
+    assert rebuild_calls == [str(collection_id)]
+    assert events == ["deleted", "rebuilt"]
+
+
+async def test_documents_delete_rebuilds_after_file_id_delete_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """File-id delete should await a collection-scoped wiki rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            assert kwargs == {"file_id": "file-a"}
+            return 2
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_delete(
+        collection_id=collection_id,
+        document_id="file-a",
+        delete_by="file_id",
+    )
+
+    assert response == {"success": True}
+    assert rebuild_calls == [str(collection_id)]
+
+
+async def test_documents_delete_skips_rebuild_after_noop_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single-delete no-ops should preserve success but skip rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            return 0
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_delete(
+        collection_id=collection_id,
+        document_id="missing-doc",
+    )
+
+    assert response == {"success": True}
+    assert rebuild_calls == []
+
+
+async def test_documents_delete_rejects_invalid_delete_by_before_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid delete_by values should fail before delete or rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    events: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            events.append("deleted")
+            return 1
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        events.append("rebuilt")
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents_api.documents_delete(
+            collection_id=collection_id,
+            document_id="doc-a",
+            delete_by="garbage",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert events == []
+
+
+async def test_documents_delete_rejects_invalid_delete_by_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid delete_by should be the endpoint's HTTP 400, not FastAPI 422."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000123")
+
+    class FailingCollection:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("Collection should not be constructed")
+
+    monkeypatch.setattr(documents_api, "Collection", FailingCollection)
+    monkeypatch.setattr(
+        documents_api,
+        "rebuild_llm_wiki",
+        lambda *_args, **_kwargs: pytest.fail("rebuild should not be called"),
+    )
+
+    from langconnect.server import APP
+
+    transport = ASGITransport(app=APP, raise_app_exceptions=True)
+    async with AsyncClient(base_url="http://test", transport=transport) as client:
+        response = await client.delete(
+            f"/collections/{collection_id}/documents/doc-1?delete_by=garbage"
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "delete_by must be either 'document_id' or 'file_id'."
+    )
+
+
+async def test_documents_delete_missing_collection_does_not_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing collection errors should propagate before rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents_api.documents_delete(
+            collection_id=collection_id, document_id="doc-a"
+        )
+
+    assert exc_info.value.status_code == 404
+    assert rebuild_calls == []
+
+
+async def test_documents_bulk_delete_rebuilds_once_for_mixed_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mixed bulk deletes should trigger exactly one rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    events: list[str] = []
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete_many(self, **kwargs: object) -> int:
+            assert kwargs == {"document_ids": ["doc-a"], "file_ids": ["file-a"]}
+            events.append("deleted")
+            return 3
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        events.append("rebuilt")
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_bulk_delete(
+        collection_id=collection_id,
+        delete_request=documents_api.DocumentDelete(
+            document_ids=["doc-a"],
+            file_ids=["file-a"],
+        ),
+    )
+
+    assert response == {"success": True, "deleted_count": 3}
+    assert rebuild_calls == [str(collection_id)]
+    assert events == ["deleted", "rebuilt"]
+
+
+async def test_documents_bulk_delete_skips_rebuild_when_no_rows_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No-op bulk deletes should not rebuild wiki artifacts."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    rebuild_calls: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete_many(self, **kwargs: object) -> int:
+            return 0
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_bulk_delete(
+        collection_id=collection_id,
+        delete_request=documents_api.DocumentDelete(document_ids=["missing-doc"]),
+    )
+
+    assert response == {"success": True, "deleted_count": 0}
+    assert rebuild_calls == []
+
+
+async def test_documents_bulk_delete_validation_error_does_not_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bulk-delete validation errors should happen before rebuild."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    events: list[str] = []
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete_many(self, **kwargs: object) -> int:
+            events.append("deleted")
+            return 1
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        events.append("rebuilt")
+        return SimpleNamespace(model_dump=lambda mode="json": {})
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents_api.documents_bulk_delete(
+            collection_id=collection_id,
+            delete_request=documents_api.DocumentDelete(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    "rebuild_error",
+    [
+        RuntimeError("secret path /tmp/internal prompt fragment"),
+        OSError("permission denied /secret/path"),
+        TimeoutError("provider timed out with token details"),
+    ],
+)
+async def test_documents_delete_reports_sanitized_partial_success_when_rebuild_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    rebuild_error: Exception,
+) -> None:
+    """Delete rebuild failures should return sanitized partial-success details."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            return 1
+
+    async def failing_rebuild(collection_id: str, **kwargs: object) -> None:
+        raise rebuild_error
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", failing_rebuild)
+
+    with (
+        caplog.at_level("ERROR", logger=documents_api.logger.name),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await documents_api.documents_delete(
+            collection_id=collection_id,
+            document_id="doc-a",
+        )
+
+    assert exc_info.value.status_code == 500
+    detail = exc_info.value.detail
+    assert detail["success"] is False
+    assert detail["error"] == "documents_deleted_wiki_rebuild_failed"
+    assert detail["documents_deleted"] is True
+    assert detail["deleted_count"] == 1
+    assert detail["wiki_rebuild_error"] == "internal_error"
+    assert detail["error_id"]
+    assert "rebuild_llm_wiki" in detail["recovery"]
+    assert "secret" not in str(detail)
+    assert "/" + "tmp" not in str(detail)
+    assert "provider timed out" not in str(detail)
+    assert any(
+        record.message == "llm_wiki_rebuild_failed_after_delete"
+        and getattr(record, "collection_id", None) == str(collection_id)
+        and getattr(record, "deleted_count", None) == 1
+        and getattr(record, "error_id", None) == detail["error_id"]
+        for record in caplog.records
+    )
+
+
+async def test_documents_bulk_delete_reports_sanitized_partial_success_when_rebuild_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bulk delete rebuild failures should include sanitized deleted_count detail."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete_many(self, **kwargs: object) -> int:
+            return 2
+
+    async def failing_rebuild(collection_id: str, **kwargs: object) -> None:
+        raise OSError("permission denied /secret/path")
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", failing_rebuild)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents_api.documents_bulk_delete(
+            collection_id=collection_id,
+            delete_request=documents_api.DocumentDelete(
+                document_ids=["doc-a", "doc-b"]
+            ),
+        )
+
+    assert exc_info.value.status_code == 500
+    detail = exc_info.value.detail
+    assert detail["error"] == "documents_deleted_wiki_rebuild_failed"
+    assert detail["deleted_count"] == 2
+    assert detail["wiki_rebuild_error"] == "internal_error"
+    assert "/secret/path" not in str(detail)
+
+
+async def test_documents_delete_rebuild_cancelled_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelled rebuilds should propagate instead of becoming partial success."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def delete(self, **kwargs: object) -> int:
+            return 1
+
+    async def cancelled_rebuild(collection_id: str, **kwargs: object) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", cancelled_rebuild)
+
+    with pytest.raises(asyncio.CancelledError):
+        await documents_api.documents_delete(
+            collection_id=collection_id, document_id="doc-a"
+        )
+
+
 async def test_documents_create_and_list_and_delete_and_search() -> None:
     """Test creating, listing, deleting, and searching documents."""
     async with get_async_test_client() as client:
         # Create a collection for documents
         collection_name = "docs_test_col"
         col_payload = {"name": collection_name, "metadata": {"purpose": "doc-test"}}
-        create_col = await client.post(
-            "/collections", json=col_payload
-        )
+        create_col = await client.post("/collections", json=col_payload)
         assert create_col.status_code == 201
         collection_data = create_col.json()
         collection_id = collection_data["uuid"]
@@ -167,9 +631,7 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
             UUID(chunk_id)
 
         # List documents in collection, default limit 10
-        list_resp = await client.get(
-            f"/collections/{collection_id}/documents"
-        )
+        list_resp = await client.get(f"/collections/{collection_id}/documents")
         assert list_resp.status_code == 200
         docs = list_resp.json()
         assert isinstance(docs, list)
@@ -315,24 +777,26 @@ async def test_semantic_search_rejects_default_low_score_no_match(
 ) -> None:
     """Default semantic search should not return unrelated nearest neighbors."""
     _patch_collection_details(monkeypatch)
-    store = _FakeVectorStore([
-        (
-            _doc(
-                "irrelevant-1",
-                "Unrelated biology pathway text without agent content.",
-                source="distractor.pdf",
+    store = _FakeVectorStore(
+        [
+            (
+                _doc(
+                    "irrelevant-1",
+                    "Unrelated biology pathway text without agent content.",
+                    source="distractor.pdf",
+                ),
+                0.54,
             ),
-            0.54,
-        ),
-        (
-            _doc(
-                "irrelevant-2",
-                "Another unrelated chunk about metabolomics.",
-                source="distractor.pdf",
+            (
+                _doc(
+                    "irrelevant-2",
+                    "Another unrelated chunk about metabolomics.",
+                    source="distractor.pdf",
+                ),
+                0.60,
             ),
-            0.60,
-        ),
-    ])
+        ]
+    )
     _patch_vectorstore(monkeypatch, store)
 
     results = await Collection("collection-id").search(
@@ -349,16 +813,18 @@ async def test_semantic_search_rejects_observed_nonsense_score_boundary(
 ) -> None:
     """Default semantic threshold should reject observed nonsense scores near 0.67."""
     _patch_collection_details(monkeypatch)
-    store = _FakeVectorStore([
-        (
-            _doc(
-                "nonsense-boundary",
-                "Nearest-neighbor text unrelated to the query.",
-                source="distractor.pdf",
+    store = _FakeVectorStore(
+        [
+            (
+                _doc(
+                    "nonsense-boundary",
+                    "Nearest-neighbor text unrelated to the query.",
+                    source="distractor.pdf",
+                ),
+                0.4925,  # similarity ~= 0.67
             ),
-            0.4925,  # similarity ~= 0.67
-        ),
-    ])
+        ]
+    )
     _patch_vectorstore(monkeypatch, store)
 
     results = await Collection("collection-id").search(
@@ -375,16 +841,18 @@ async def test_semantic_search_allows_explicit_lower_min_score(
 ) -> None:
     """Callers can opt into lower semantic thresholds without changing limit."""
     _patch_collection_details(monkeypatch)
-    store = _FakeVectorStore([
-        (
-            _doc(
-                "low-score-match",
-                "A weak but caller-accepted semantic match.",
-                source="weak.pdf",
+    store = _FakeVectorStore(
+        [
+            (
+                _doc(
+                    "low-score-match",
+                    "A weak but caller-accepted semantic match.",
+                    source="weak.pdf",
+                ),
+                0.54,
             ),
-            0.54,
-        ),
-    ])
+        ]
+    )
     _patch_vectorstore(monkeypatch, store)
 
     results = await Collection("collection-id").search(
@@ -402,16 +870,18 @@ async def test_semantic_search_allows_explicit_boundary_min_score(
 ) -> None:
     """Callers can still opt into accepting a score near the default boundary."""
     _patch_collection_details(monkeypatch)
-    store = _FakeVectorStore([
-        (
-            _doc(
-                "boundary-match",
-                "A caller-accepted lower confidence semantic match.",
-                source="weak.pdf",
+    store = _FakeVectorStore(
+        [
+            (
+                _doc(
+                    "boundary-match",
+                    "A caller-accepted lower confidence semantic match.",
+                    source="weak.pdf",
+                ),
+                0.4925,  # similarity ~= 0.67
             ),
-            0.4925,  # similarity ~= 0.67
-        ),
-    ])
+        ]
+    )
     _patch_vectorstore(monkeypatch, store)
 
     results = await Collection("collection-id").search(
@@ -482,16 +952,18 @@ async def test_hybrid_search_rejects_default_low_score_no_match(
 ) -> None:
     """Default hybrid search should not revive weak semantic candidates."""
     _patch_collection_details(monkeypatch)
-    store = _FakeVectorStore([
-        (
-            _doc(
-                "irrelevant-semantic",
-                "Unrelated nearest-neighbor content.",
-                source="distractor.pdf",
+    store = _FakeVectorStore(
+        [
+            (
+                _doc(
+                    "irrelevant-semantic",
+                    "Unrelated nearest-neighbor content.",
+                    source="distractor.pdf",
+                ),
+                0.54,
             ),
-            0.54,
-        ),
-    ])
+        ]
+    )
     _patch_vectorstore(monkeypatch, store)
     _patch_keyword_rows(monkeypatch, [])
 
@@ -521,20 +993,23 @@ async def test_hybrid_search_preserves_strong_semantic_match_over_keyword_only(
     )
     store = _FakeVectorStore([(strong_semantic, 0.05)])
     _patch_vectorstore(monkeypatch, store)
-    _patch_keyword_rows(monkeypatch, [
-        _keyword_row(
-            "keyword-only",
-            keyword_only.page_content,
-            10.0,
-            source="keyword.pdf",
-        ),
-        _keyword_row(
-            "semantic-strong",
-            strong_semantic.page_content,
-            1.0,
-            source="skillfoundry.pdf",
-        ),
-    ])
+    _patch_keyword_rows(
+        monkeypatch,
+        [
+            _keyword_row(
+                "keyword-only",
+                keyword_only.page_content,
+                10.0,
+                source="keyword.pdf",
+            ),
+            _keyword_row(
+                "semantic-strong",
+                strong_semantic.page_content,
+                1.0,
+                source="skillfoundry.pdf",
+            ),
+        ],
+    )
 
     results = await Collection("collection-id").search(
         "agent skill",
@@ -562,20 +1037,23 @@ async def test_hybrid_search_dedupes_mixed_id_types_and_combines_scores(
     )
     store = _FakeVectorStore([(semantic_doc, 0.25)])
     _patch_vectorstore(monkeypatch, store)
-    _patch_keyword_rows(monkeypatch, [
-        _keyword_row(
-            42,
-            "Keyword content for the same shared document id.",
-            2.0,
-            source="keyword.pdf",
-        ),
-        _keyword_row(
-            "keyword-only",
-            "Keyword-only content should remain in hybrid results.",
-            1.0,
-            source="keyword-only.pdf",
-        ),
-    ])
+    _patch_keyword_rows(
+        monkeypatch,
+        [
+            _keyword_row(
+                42,
+                "Keyword content for the same shared document id.",
+                2.0,
+                source="keyword.pdf",
+            ),
+            _keyword_row(
+                "keyword-only",
+                "Keyword-only content should remain in hybrid results.",
+                1.0,
+                source="keyword-only.pdf",
+            ),
+        ],
+    )
 
     results = await Collection("collection-id").search(
         "shared document",
@@ -701,9 +1179,7 @@ async def test_documents_in_nonexistent_collection() -> None:
     async with get_async_test_client() as client:
         # Try listing documents in missing collection
         no_such_collection = "12345678-1234-5678-1234-567812345678"
-        response = await client.get(
-            f"/collections/{no_such_collection}/documents"
-        )
+        response = await client.get(f"/collections/{no_such_collection}/documents")
         assert response.status_code == 404
 
         # Try uploading to a non existent collection
@@ -1024,7 +1500,9 @@ async def test_documents_bulk_delete() -> None:
         )
 
         # List all documents to get their IDs
-        list_resp = await client.get(f"/collections/{collection_id}/documents?limit=100")
+        list_resp = await client.get(
+            f"/collections/{collection_id}/documents?limit=100"
+        )
         assert list_resp.status_code == 200
         docs = list_resp.json()
         assert len(docs) == 2
@@ -1044,7 +1522,9 @@ async def test_documents_bulk_delete() -> None:
         assert del_resp_docs.json()["deleted_count"] == 1
 
         # Verify one document is left
-        list_resp_after_doc_delete = await client.get(f"/collections/{collection_id}/documents")
+        list_resp_after_doc_delete = await client.get(
+            f"/collections/{collection_id}/documents"
+        )
         assert len(list_resp_after_doc_delete.json()) == 1
 
         # Bulk delete by file_ids
@@ -1059,5 +1539,7 @@ async def test_documents_bulk_delete() -> None:
         assert del_resp_files.json()["deleted_count"] == 1
 
         # Verify no documents are left
-        list_resp_after_file_delete = await client.get(f"/collections/{collection_id}/documents")
+        list_resp_after_file_delete = await client.get(
+            f"/collections/{collection_id}/documents"
+        )
         assert list_resp_after_file_delete.json() == []

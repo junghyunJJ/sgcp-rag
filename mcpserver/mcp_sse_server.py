@@ -56,6 +56,27 @@ class LangConnectClient:
 client = LangConnectClient(API_BASE_URL)
 
 
+def _delete_partial_success_message(
+    exc: httpx.HTTPStatusError,
+    collection_id: str,
+) -> str | None:
+    try:
+        detail = exc.response.json().get("detail", {})
+    except ValueError:
+        return None
+    if not isinstance(detail, dict):
+        return None
+    if detail.get("error") != "documents_deleted_wiki_rebuild_failed":
+        return None
+    deleted_count = detail.get("deleted_count", "unknown")
+    error_id = detail.get("error_id", "unknown")
+    return (
+        "Document deletion succeeded, but LLM Wiki rebuild failed. "
+        f"Deleted count: {deleted_count}. Error ID: {error_id}. "
+        f"Run rebuild_llm_wiki({collection_id!r}) to retry."
+    )
+
+
 @mcp.tool
 async def search_documents(
     collection_id: str,
@@ -197,9 +218,15 @@ async def add_documents(collection_id: str, text: str) -> str:
 @mcp.tool
 async def delete_document(collection_id: str, document_id: str) -> str:
     """Delete a document from a collection."""
-    await client.request(
-        "DELETE", f"/collections/{collection_id}/documents/{document_id}"
-    )
+    try:
+        await client.request(
+            "DELETE", f"/collections/{collection_id}/documents/{document_id}"
+        )
+    except httpx.HTTPStatusError as exc:
+        message = _delete_partial_success_message(exc, collection_id)
+        if message:
+            return message
+        raise
     return f"Document {document_id} deleted successfully!"
 
 

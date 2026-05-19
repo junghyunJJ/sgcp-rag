@@ -367,12 +367,16 @@ class Collection:
         *,
         file_id: Optional[str] = None,
         document_id: Optional[str] = None,
-    ) -> bool:
+    ) -> int:
         """Delete embeddings by file id or individual document id.
 
         Args:
             file_id: Deletes all chunks from a specific file
             document_id: Deletes a specific chunk/document
+
+        Returns:
+            Number of deleted embeddings. Returns 0 when the collection exists but
+            no matching document or file chunks were found.
         """
         async with get_db_connection() as conn:
             if document_id:
@@ -413,7 +417,7 @@ class Collection:
             # For now if deleted count is 0, let's verify that the collection exists.
             if deleted_count == 0:
                 await self._get_details_or_raise()
-        return True
+        return deleted_count
 
     async def delete_many(
         self,

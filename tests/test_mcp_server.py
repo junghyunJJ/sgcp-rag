@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 
 import mcpserver.mcp_server as mcp_mod
@@ -171,6 +172,64 @@ async def test_delete_document(monkeypatch):
     monkeypatch.setattr(mcp_mod.client, "request", dummy_request)
     out = await delete_document("cid", "docid")
     assert out == "Document docid deleted successfully!"
+
+
+def _partial_success_http_error() -> httpx.HTTPStatusError:
+    request = httpx.Request("DELETE", "http://test/collections/cid/documents/docid")
+    response = httpx.Response(
+        500,
+        json={
+            "detail": {
+                "success": False,
+                "error": "documents_deleted_wiki_rebuild_failed",
+                "message": "Documents were deleted, but LLM Wiki rebuild failed.",
+                "documents_deleted": True,
+                "deleted_count": 1,
+                "wiki_rebuild_error": "internal_error",
+                "error_id": "err-1",
+                "recovery": "Call rebuild_llm_wiki(collection_id) to retry.",
+            }
+        },
+        request=request,
+    )
+    return httpx.HTTPStatusError(
+        "Server error",
+        request=request,
+        response=response,
+    )
+
+
+async def test_delete_document_reports_partial_success_rebuild_failure(monkeypatch):
+    """stdio delete should preserve partial-success rebuild failure detail."""
+
+    async def failing_request(method, endpoint, **kwargs: object) -> None:
+        raise _partial_success_http_error()
+
+    monkeypatch.setattr(mcp_mod.client, "request", failing_request)
+
+    out = await delete_document("cid", "docid")
+
+    assert "deleted" in out.lower()
+    assert "wiki rebuild failed" in out.lower()
+    assert "rebuild_llm_wiki" in out
+    assert "cid" in out
+
+
+async def test_sse_delete_document_reports_partial_success_rebuild_failure(monkeypatch):
+    """SSE delete should preserve partial-success rebuild failure detail."""
+    import mcpserver.mcp_sse_server as sse_mod
+
+    async def failing_request(method, endpoint, **kwargs: object) -> None:
+        raise _partial_success_http_error()
+
+    monkeypatch.setattr(sse_mod.client, "request", failing_request)
+
+    out = await sse_mod.delete_document.fn("cid", "docid")
+
+    assert "deleted" in out.lower()
+    assert "wiki rebuild failed" in out.lower()
+    assert "rebuild_llm_wiki" in out
+    assert "cid" in out
 
 
 async def test_get_health_status(monkeypatch):
