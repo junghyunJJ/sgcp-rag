@@ -18,7 +18,8 @@ from langconnect.agent import query_expansion
 LineListOutputParser = query_expansion.LineListOutputParser
 generate_query_expansions = query_expansion.generate_query_expansions
 
-load_dotenv()
+if os.getenv("PYTHON_DOTENV_DISABLED") != "1":
+    load_dotenv()
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
@@ -26,7 +27,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
 # Create FastMCP server
 mcp = FastMCP(
     name="langconnect-rag-mcp",
-    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call agentic_search(collection_id, question) for AI-powered question answering with automatic query rewriting and answer validation. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
+    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call agentic_search(collection_id, question) for AI-powered question answering with automatic query rewriting and answer validation. Call rebuild_llm_wiki(collection_id) to rebuild generated non-authoritative LLM Wiki navigation context for a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
 )
 
 
@@ -782,6 +783,32 @@ async def agentic_search(
             "selected_wiki_pages": [],
             "wiki_context_status": "disabled",
         })
+
+
+@mcp.tool
+async def rebuild_llm_wiki(
+    collection_id: str,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+) -> str:
+    """Rebuild generated LLM Wiki artifacts for a collection through REST."""
+    payload = {
+        key: value
+        for key, value in {
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "llm_temperature": llm_temperature,
+        }.items()
+        if value is not None
+    }
+    result = await client.request(
+        "POST",
+        f"/collections/{collection_id}/llm-wiki/rebuild",
+        timeout=300.0,
+        json=payload,
+    )
+    return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool

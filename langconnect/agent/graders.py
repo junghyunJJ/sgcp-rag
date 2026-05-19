@@ -1,12 +1,14 @@
 """Agentic RAG grader models.
 
-Pydantic models used with LLM structured output to get binary yes/no
-decisions for document relevance, hallucination detection, and answer quality.
+Pydantic models used to normalize binary yes/no decisions for document relevance,
+hallucination detection, and answer quality.
 """
 
+import json
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -41,31 +43,91 @@ class GradeAnswer(BaseModel):
     )
 
 
+def _normalize_binary_score(value: object) -> Literal["yes", "no"]:
+    if not isinstance(value, str):
+        raise ValueError("binary_score must be 'yes' or 'no'")
+
+    score = value.strip().lower().rstrip(".!")
+    if score in {"yes", "no"}:
+        return score  # type: ignore[return-value]
+
+    raise ValueError("binary_score must be 'yes' or 'no'")
+
+
+def parse_binary_score_response(
+    text: str,
+    model_class: type[BaseModel],
+) -> BaseModel:
+    """Parse schema-shaped JSON or a bare yes/no response into a grader model."""
+    stripped = text.strip()
+
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        return model_class(
+            binary_score=_normalize_binary_score(parsed.get("binary_score"))
+        )
+
+    if isinstance(parsed, str):
+        return model_class(binary_score=_normalize_binary_score(parsed))
+
+    return model_class(binary_score=_normalize_binary_score(stripped))
+
+
+class BinaryScoreOutputParser(BaseOutputParser[BaseModel]):
+    """Parse binary grader output into the requested Pydantic model."""
+
+    model_class: type[BaseModel]
+
+    def parse(self, text: str) -> BaseModel:
+        """Parse text into the configured binary-score model."""
+        return parse_binary_score_response(text, self.model_class)
+
+
 def get_document_grader(llm: BaseChatModel):
     """Create a document relevance grader chain."""
-    structured_llm = llm.with_structured_output(GradeDocumentRelevance)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a grader assessing document relevance. Respond with structured output."),
+        (
+            "system",
+            "You are a grader assessing document relevance. "
+            'Return only JSON: {{"binary_score": "yes"}} or '
+            '{{"binary_score": "no"}}.',
+        ),
         ("human", DOCUMENT_GRADER_PROMPT),
     ])
-    return prompt | structured_llm
+    return prompt | llm | BinaryScoreOutputParser(
+        model_class=GradeDocumentRelevance,
+    )
 
 
 def get_hallucination_grader(llm: BaseChatModel):
     """Create a hallucination grader chain."""
-    structured_llm = llm.with_structured_output(GradeHallucination)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a grader assessing factual grounding. Respond with structured output."),
+        (
+            "system",
+            "You are a grader assessing factual grounding. "
+            'Return only JSON: {{"binary_score": "yes"}} or '
+            '{{"binary_score": "no"}}.',
+        ),
         ("human", HALLUCINATION_GRADER_PROMPT),
     ])
-    return prompt | structured_llm
+    return prompt | llm | BinaryScoreOutputParser(
+        model_class=GradeHallucination,
+    )
 
 
 def get_answer_grader(llm: BaseChatModel):
     """Create an answer quality grader chain."""
-    structured_llm = llm.with_structured_output(GradeAnswer)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a grader assessing answer quality. Respond with structured output."),
+        (
+            "system",
+            "You are a grader assessing answer quality. "
+            'Return only JSON: {{"binary_score": "yes"}} or '
+            '{{"binary_score": "no"}}.',
+        ),
         ("human", ANSWER_GRADER_PROMPT),
     ])
-    return prompt | structured_llm
+    return prompt | llm | BinaryScoreOutputParser(model_class=GradeAnswer)

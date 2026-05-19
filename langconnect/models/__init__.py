@@ -6,12 +6,13 @@ from langconnect.models.collection import (
 )
 from langconnect.models.document import (
     DocumentCreate,
+    DocumentDelete,
     DocumentResponse,
     DocumentUpdate,
     SearchQuery,
     SearchResult,
-    DocumentDelete,
 )
+from langconnect.models.llm_wiki import LLMWikiRebuildRequest, LLMWikiRebuildResponse
 
 __all__ = [
     "AgenticSearchQuery",
@@ -20,9 +21,11 @@ __all__ = [
     "CollectionResponse",
     "CollectionUpdate",
     "DocumentCreate",
+    "DocumentDelete",
     "DocumentResponse",
     "DocumentUpdate",
+    "LLMWikiRebuildRequest",
+    "LLMWikiRebuildResponse",
     "SearchQuery",
     "SearchResult",
-    "DocumentDelete",
 ]

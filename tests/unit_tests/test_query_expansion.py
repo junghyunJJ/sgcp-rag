@@ -105,6 +105,35 @@ async def test_query_expansion_uses_dedicated_ollama_base_url(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_query_expansion_ollama_disables_reasoning(monkeypatch):
+    """Query expansion should use Ollama with reasoning disabled."""
+    captured_reasoning: list[bool | str | None] = []
+
+    async def fake_available(model: str, base_url: str) -> bool:
+        return True
+
+    async def fake_invoke(llm, question: str) -> list[str]:
+        captured_reasoning.append(llm.reasoning)
+        return ["query one"]
+
+    monkeypatch.setattr(qe, "is_ollama_model_available", fake_available)
+    monkeypatch.setattr(qe, "_invoke_query_expansion", fake_invoke)
+
+    with patch.dict(
+        os.environ,
+        {
+            "QUERY_EXPANSION_LLM_PROVIDER": "ollama",
+            "QUERY_EXPANSION_LLM_MODEL": "qwen3.5:35b",
+            "QUERY_EXPANSION_OLLAMA_BASE_URL": "http://localhost:5000",
+        },
+    ):
+        result = await qe.generate_query_expansions("ask?")
+
+    assert result == ["query one"]
+    assert captured_reasoning == [False]
+
+
+@pytest.mark.asyncio
 async def test_auto_query_expansion_falls_back_to_openai(monkeypatch):
     """Auto mode should use OpenAI when the configured Ollama model is unavailable."""
     calls: list[tuple] = []

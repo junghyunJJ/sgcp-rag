@@ -5,7 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from langconnect.api import agentic_router, collections_router, documents_router
+from langconnect.api import (
+    agentic_router,
+    collections_router,
+    documents_router,
+    llm_wiki_router,
+)
 from langconnect.config import ALLOWED_ORIGINS
 from langconnect.database.collections import CollectionsManager
 from langconnect.database.connection import close_db_pool, close_engine
@@ -47,6 +52,7 @@ APP.add_middleware(
 APP.include_router(agentic_router)
 APP.include_router(collections_router)
 APP.include_router(documents_router)
+APP.include_router(llm_wiki_router)
 
 
 @APP.get("/health")

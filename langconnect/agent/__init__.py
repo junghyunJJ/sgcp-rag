@@ -19,7 +19,12 @@ from langconnect.agent.config import (
     is_ollama_model_available,
 )
 from langconnect.agent.graph import build_agentic_rag_graph
-from langconnect.agent.wiki_context import WikiContextResult, resolve_wiki_context
+from langconnect.agent.wiki_context import (
+    WikiContextResult,
+    extract_wiki_source_refs,
+    resolve_wiki_context,
+)
+from langconnect.database.collections import Collection
 
 AGENTIC_SEARCH_TIMEOUT = 120  # seconds
 DEFAULT_AGENT_PROVIDER = "openai"
@@ -30,8 +35,10 @@ logger = logging.getLogger(__name__)
 
 def _agent_llm_provider(provider: str | None = None) -> str:
     return (
-        provider or os.getenv("AGENT_LLM_PROVIDER", DEFAULT_AGENT_PROVIDER)
-    ).strip().lower()
+        (provider or os.getenv("AGENT_LLM_PROVIDER", DEFAULT_AGENT_PROVIDER))
+        .strip()
+        .lower()
+    )
 
 
 def _agent_ollama_model(model: str | None = None) -> str:
@@ -58,8 +65,7 @@ def _format_agentic_result(
             "selected_wiki_pages",
             wiki_result.selected_pages,
         ),
-        "wiki_context_status": result.get("wiki_context_status")
-        or wiki_result.status,
+        "wiki_context_status": result.get("wiki_context_status") or wiki_result.status,
     }
 
 
@@ -78,6 +84,34 @@ def _format_agentic_error(
         "selected_wiki_pages": wiki_result.selected_pages,
         "wiki_context_status": wiki_result.status,
     }
+
+
+async def _resolve_wiki_promotion(
+    collection_id: str,
+    wiki_result: WikiContextResult,
+) -> tuple[list[dict[str, str]], list[dict[str, Any]], str, list[str]]:
+    if wiki_result.status != "selected":
+        return [], [], "not_selected", []
+
+    source_refs = extract_wiki_source_refs(wiki_result.selected_pages)
+    if not source_refs:
+        return [], [], "no_valid_source_refs", []
+
+    try:
+        promoted_documents = await Collection(
+            collection_id,
+        ).get_many_by_source_refs(source_refs)
+    except Exception as error:
+        logger.warning(
+            "LLM Wiki source-ref promotion failed for collection %s: %s",
+            collection_id,
+            error,
+            exc_info=True,
+        )
+        return source_refs, [], "fetch_failed", ["wiki_promotion: fetch_failed"]
+
+    status = "promoted" if promoted_documents else "no_matching_source_refs"
+    return source_refs, promoted_documents, status, []
 
 
 async def _invoke_agent_graph(
@@ -218,6 +252,10 @@ async def run_agentic_search(  # noqa: PLR0913
         query_rewrites, rewrite_count, error.
     """
     wiki_result = WikiContextResult(context="", selected_pages=[], status="disabled")
+    wiki_source_refs: list[dict[str, str]] = []
+    wiki_promoted_documents: list[dict[str, Any]] = []
+    wiki_promotion_status = "disabled"
+    wiki_promotion_steps: list[str] = []
 
     try:
         if max_rewrites is None:
@@ -225,6 +263,12 @@ async def run_agentic_search(  # noqa: PLR0913
 
         if use_wiki_context:
             wiki_result = resolve_wiki_context(collection_id, question)
+            (
+                wiki_source_refs,
+                wiki_promoted_documents,
+                wiki_promotion_status,
+                wiki_promotion_steps,
+            ) = await _resolve_wiki_promotion(collection_id, wiki_result)
 
         initial_state = {
             "question": question,
@@ -239,13 +283,16 @@ async def run_agentic_search(  # noqa: PLR0913
             "query_rewrites": [],
             "rewrite_count": 0,
             "max_rewrites": max_rewrites,
-            "steps": [],
+            "steps": wiki_promotion_steps,
             "error": None,
             "no_context_found": False,
             "use_wiki_context": use_wiki_context,
-            "wiki_context": wiki_result.context,
+            "wiki_context": "",
             "selected_wiki_pages": wiki_result.selected_pages,
             "wiki_context_status": wiki_result.status,
+            "wiki_source_refs": wiki_source_refs,
+            "wiki_promoted_documents": wiki_promoted_documents,
+            "wiki_promotion_status": wiki_promotion_status,
         }
 
         provider = _agent_llm_provider(llm_provider)
@@ -260,9 +307,7 @@ async def run_agentic_search(  # noqa: PLR0913
                 provider=provider,
                 model=llm_model,
                 temperature=llm_temperature,
-                base_url=get_agent_ollama_base_url()
-                if provider == "ollama"
-                else None,
+                base_url=get_agent_ollama_base_url() if provider == "ollama" else None,
                 initial_state=initial_state,
             )
 

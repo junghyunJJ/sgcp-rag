@@ -71,17 +71,11 @@ def _validate_metadata_filter(
         if key.startswith("$"):
             _raise_unsupported_filter(f"operator {key!r} is not supported")
         if not key.isidentifier():
-            _raise_unsupported_filter(
-                "filter field names must be valid identifiers"
-            )
+            _raise_unsupported_filter("filter field names must be valid identifiers")
         if isinstance(value, (dict, list)):
-            _raise_unsupported_filter(
-                f"field {key!r} must use scalar equality"
-            )
+            _raise_unsupported_filter(f"field {key!r} must use scalar equality")
         if not isinstance(value, (str, int, float, bool, type(None))):
-            _raise_unsupported_filter(
-                f"field {key!r} must use scalar equality"
-            )
+            _raise_unsupported_filter(f"field {key!r} must use scalar equality")
         if key in flattened and flattened[key] != value:
             _raise_unsupported_filter(f"conflicting values for field {key!r}")
         flattened[key] = value
@@ -531,6 +525,81 @@ class Collection:
             "metadata": metadata,
         }
 
+    async def get_many_by_source_refs(
+        self,
+        source_refs: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Fetch chunks by wiki source-ref file/chunk pairs in ref order."""
+        refs = [
+            {"file_id": ref["file_id"].strip(), "chunk_id": ref["chunk_id"].strip()}
+            for ref in source_refs
+            if isinstance(ref, dict)
+            and isinstance(ref.get("file_id"), str)
+            and isinstance(ref.get("chunk_id"), str)
+            and ref["file_id"].strip()
+            and ref["chunk_id"].strip()
+        ]
+        if not refs:
+            return []
+
+        file_ids = [ref["file_id"] for ref in refs]
+        chunk_ids = [ref["chunk_id"] for ref in refs]
+        async with get_db_connection() as conn:
+            rows = await conn.fetch(
+                """
+                WITH refs AS (
+                    SELECT file_id, chunk_id, ord
+                      FROM unnest($2::text[], $3::text[])
+                           WITH ORDINALITY AS t(file_id, chunk_id, ord)
+                )
+                SELECT refs.file_id AS wiki_file_id,
+                       refs.chunk_id AS wiki_chunk_id,
+                       e.id AS id,
+                       e.document AS page_content,
+                       e.cmetadata AS metadata
+                  FROM refs
+                  JOIN langchain_pg_embedding e
+                    ON e.id::text = refs.chunk_id
+                  JOIN langchain_pg_collection c
+                    ON e.collection_id = c.uuid
+                 WHERE c.uuid = $1
+                   AND e.cmetadata->>'file_id' = refs.file_id
+                 ORDER BY refs.ord
+                """,
+                self.collection_id,
+                file_ids,
+                chunk_ids,
+            )
+
+        docs: list[dict[str, Any]] = []
+        for row in rows:
+            metadata = _metadata_from_row(row)
+            try:
+                wiki_file_id = str(row["wiki_file_id"])
+            except (IndexError, KeyError):
+                wiki_file_id = str(metadata.get("file_id", ""))
+            try:
+                wiki_chunk_id = str(row["wiki_chunk_id"])
+            except (IndexError, KeyError):
+                wiki_chunk_id = str(row["id"])
+            metadata.update(
+                {
+                    "wiki_promoted": True,
+                    "wiki_file_id": wiki_file_id,
+                    "wiki_chunk_id": wiki_chunk_id,
+                }
+            )
+            docs.append(
+                {
+                    "id": str(row["id"]),
+                    "page_content": row["page_content"],
+                    "content": row["page_content"],
+                    "metadata": metadata,
+                    "score": 1.0,
+                }
+            )
+        return docs
+
     async def search(
         self,
         query: str,
@@ -759,6 +828,4 @@ class Collection:
                 }
             )
 
-        return sorted(
-            fused_results, key=lambda x: x["score"], reverse=True
-        )[:limit]
+        return sorted(fused_results, key=lambda x: x["score"], reverse=True)[:limit]

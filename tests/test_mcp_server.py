@@ -19,6 +19,7 @@ add_documents = mcp_mod.add_documents.fn
 add_documents_from_files = mcp_mod.add_documents_from_files.fn
 delete_document = mcp_mod.delete_document.fn
 agentic_search = mcp_mod.agentic_search.fn
+rebuild_llm_wiki = mcp_mod.rebuild_llm_wiki.fn
 get_health_status = mcp_mod.get_health_status.fn
 multi_query = mcp_mod.multi_query.fn
 
@@ -258,6 +259,47 @@ async def test_agentic_search_forwards_wiki_context_and_returns_metadata(monkeyp
     assert data["wiki_context_status"] == "selected"
 
 
+async def test_rebuild_llm_wiki_posts_over_stdio_mcp(monkeypatch):
+    """Manual wiki rebuild forwards LLM overrides through stdio MCP."""
+    captured: dict[str, object] = {}
+
+    async def dummy_request(
+        method: str,
+        endpoint: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.update({"method": method, "endpoint": endpoint, **kwargs})
+        return {
+            "collection_id": "cid",
+            "status": "rebuilt",
+            "source_page_count": 2,
+            "concept_page_count": 1,
+            "page_count": 3,
+            "chunk_count": 9,
+            "pack_path": "llm_wiki/collections/cid.json",
+        }
+
+    monkeypatch.setattr(mcp_mod.client, "request", dummy_request)
+
+    out = await rebuild_llm_wiki(
+        "cid",
+        llm_provider="ollama",
+        llm_model="qwen",
+        llm_temperature=0.2,
+    )
+    data = json.loads(out)
+
+    assert captured["method"] == "POST"
+    assert captured["endpoint"] == "/collections/cid/llm-wiki/rebuild"
+    assert captured["json"] == {
+        "llm_provider": "ollama",
+        "llm_model": "qwen",
+        "llm_temperature": 0.2,
+    }
+    assert data["status"] == "rebuilt"
+    assert data["pack_path"] == "llm_wiki/collections/cid.json"
+
+
 async def test_sse_agentic_search_forwards_wiki_context_and_returns_metadata(
     monkeypatch,
 ):
@@ -294,6 +336,49 @@ async def test_sse_agentic_search_forwards_wiki_context_and_returns_metadata(
     assert captured["json"]["use_wiki_context"] is True
     assert data["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
     assert data["wiki_context_status"] == "selected"
+
+
+async def test_sse_rebuild_llm_wiki_posts_over_mcp(monkeypatch):
+    """Manual wiki rebuild forwards overrides through SSE MCP."""
+    import mcpserver.mcp_sse_server as sse_mod
+
+    captured: dict[str, object] = {}
+
+    async def dummy_request(
+        method: str,
+        endpoint: str,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.update({"method": method, "endpoint": endpoint, **kwargs})
+        return {
+            "collection_id": "cid",
+            "status": "rebuilt",
+            "source_page_count": 1,
+            "concept_page_count": 0,
+            "page_count": 1,
+            "chunk_count": 4,
+            "pack_path": "llm_wiki/collections/cid.json",
+        }
+
+    monkeypatch.setattr(sse_mod.client, "request", dummy_request)
+
+    out = await sse_mod.rebuild_llm_wiki.fn(
+        "cid",
+        llm_provider="openai",
+        llm_model="gpt-test",
+        llm_temperature=0,
+    )
+    data = json.loads(out)
+
+    assert captured["method"] == "POST"
+    assert captured["endpoint"] == "/collections/cid/llm-wiki/rebuild"
+    assert captured["json"] == {
+        "llm_provider": "openai",
+        "llm_model": "gpt-test",
+        "llm_temperature": 0,
+    }
+    assert data["status"] == "rebuilt"
+    assert data["page_count"] == 1
 
 
 async def test_agentic_search_invalid_filter_returns_finite_wiki_status():

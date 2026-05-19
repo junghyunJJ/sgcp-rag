@@ -18,9 +18,10 @@ WikiContextStatus = Literal[
     "invalid_schema",
 ]
 
-DEFAULT_WIKI_CONTEXT_DIR = Path("omx_wiki/collections")
+DEFAULT_WIKI_CONTEXT_DIR = Path("llm_wiki/collections")
 WIKI_CONTEXT_DIR_ENV = "LANGCONNECT_WIKI_CONTEXT_DIR"
 MAX_SELECTED_PAGES = 3
+MAX_WIKI_SOURCE_REFS = 8
 LOW_SIGNAL_TOKENS = {
     "a",
     "an",
@@ -211,8 +212,7 @@ def _render_context(selected_pages: list[dict[str, Any]]) -> str:
     ]
     for index, page in enumerate(selected_pages, start=1):
         refs = ", ".join(
-            f"{ref['file_id']}:{ref['chunk_id']}"
-            for ref in page.get("source_refs", [])
+            f"{ref['file_id']}:{ref['chunk_id']}" for ref in page.get("source_refs", [])
         )
         lines.extend(
             [
@@ -222,6 +222,38 @@ def _render_context(selected_pages: list[dict[str, Any]]) -> str:
             ]
         )
     return "\n".join(lines)
+
+
+def extract_wiki_source_refs(
+    selected_pages: list[dict[str, Any]],
+    *,
+    limit: int = MAX_WIKI_SOURCE_REFS,
+) -> list[dict[str, str]]:
+    """Flatten selected wiki page source refs for bounded chunk promotion."""
+    if limit <= 0:
+        return []
+
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for page in selected_pages:
+        page_refs = page.get("source_refs", []) if isinstance(page, dict) else []
+        if not isinstance(page_refs, list):
+            continue
+        for item in page_refs:
+            if not isinstance(item, dict):
+                continue
+            file_id = _require_text(item.get("file_id"))
+            chunk_id = _require_text(item.get("chunk_id"))
+            if file_id is None or chunk_id is None:
+                continue
+            key = (file_id, chunk_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append({"file_id": file_id, "chunk_id": chunk_id})
+            if len(refs) >= limit:
+                return refs
+    return refs
 
 
 def _load_pack(path: Path) -> tuple[object | None, WikiContextStatus | None]:

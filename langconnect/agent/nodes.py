@@ -21,13 +21,34 @@ from langconnect.agent.graders import (
 )
 from langconnect.agent.prompts import (
     ANSWER_GENERATOR_PROMPT,
-    ANSWER_GENERATOR_WITH_WIKI_PROMPT,
     QUERY_REWRITER_PROMPT,
 )
 from langconnect.agent.state import AgentState
 from langconnect.database.collections import Collection
 
 logger = logging.getLogger(__name__)
+
+
+def _merge_wiki_promoted_documents(
+    documents: list[dict[str, Any]],
+    promoted_documents: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Append promoted wiki chunks without replacing normal search results."""
+    merged = list(documents)
+    seen_ids = {
+        str(doc["id"])
+        for doc in documents
+        if isinstance(doc, dict) and doc.get("id") is not None
+    }
+    appended = 0
+    for doc in promoted_documents:
+        doc_id = doc.get("id") if isinstance(doc, dict) else None
+        if doc_id is None or str(doc_id) in seen_ids:
+            continue
+        merged.append(doc)
+        seen_ids.add(str(doc_id))
+        appended += 1
+    return merged, appended
 
 
 async def retrieve(state: AgentState) -> dict[str, Any]:
@@ -48,15 +69,37 @@ async def retrieve(state: AgentState) -> dict[str, Any]:
         filter=state.get("search_filter"),
         min_score=state.get("min_score"),
     )
+    documents, promoted_count = _merge_wiki_promoted_documents(
+        documents,
+        state.get("wiki_promoted_documents", []),
+    )
+
+    steps = [f"retrieve: found {len(documents)} documents"]
+    if state.get("use_wiki_context"):
+        source_ref_count = len(state.get("wiki_source_refs", []))
+        promotion_status = state.get("wiki_promotion_status", "disabled")
+        has_promotion_step = any(
+            step.startswith("wiki_promotion:") for step in state.get("steps", [])
+        )
+        if promotion_status == "fetch_failed":
+            if not has_promotion_step:
+                steps.append("wiki_promotion: fetch_failed")
+        elif source_ref_count:
+            steps.append(
+                f"wiki_promotion: promoted {promoted_count}/{source_ref_count} refs"
+            )
+        elif promotion_status == "no_valid_source_refs":
+            steps.append("wiki_promotion: no valid source refs")
 
     return {
         "documents": documents,
-        "steps": [f"retrieve: found {len(documents)} documents"],
+        "steps": steps,
     }
 
 
 async def grade_documents(
-    state: AgentState, llm: BaseChatModel,
+    state: AgentState,
+    llm: BaseChatModel,
 ) -> dict[str, Any]:
     """Grade each retrieved document for relevance to the question."""
     logger.info("--- GRADE DOCUMENTS ---")
@@ -67,9 +110,7 @@ async def grade_documents(
 
     for doc in documents:
         content = doc.get("page_content", "")
-        result = await grader.ainvoke(
-            {"document": content, "question": question}
-        )
+        result = await grader.ainvoke({"document": content, "question": question})
         if result.binary_score.lower() == "yes":
             relevant_docs.append(doc)
 
@@ -80,31 +121,30 @@ async def grade_documents(
 
 
 async def generate(
-    state: AgentState, llm: BaseChatModel,
+    state: AgentState,
+    llm: BaseChatModel,
 ) -> dict[str, Any]:
     """Generate an answer from relevant documents."""
     logger.info("--- GENERATE ---")
     question = state["question"]
     relevant_docs = state.get("relevant_documents", [])
-    context = "\n\n---\n\n".join(
-        doc.get("page_content", "") for doc in relevant_docs
-    )
-    wiki_context = state.get("wiki_context", "")
-
-    prompt_text = ANSWER_GENERATOR_PROMPT
+    context = "\n\n---\n\n".join(doc.get("page_content", "") for doc in relevant_docs)
     payload = {"question": question, "context": context}
     steps = []
-    if wiki_context:
-        prompt_text = ANSWER_GENERATOR_WITH_WIKI_PROMPT
-        payload["wiki_context"] = wiki_context
+    if state.get("use_wiki_context"):
         selected_count = len(state.get("selected_wiki_pages", []))
-        steps.append(f"wiki_context: selected {selected_count} pages")
-    elif state.get("use_wiki_context"):
-        steps.append(f"wiki_context: {state.get('wiki_context_status', 'disabled')}")
+        if state.get("wiki_context_status") == "selected":
+            steps.append(f"wiki_context: selected {selected_count} pages")
+        else:
+            steps.append(
+                f"wiki_context: {state.get('wiki_context_status', 'disabled')}"
+            )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("human", prompt_text),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("human", ANSWER_GENERATOR_PROMPT),
+        ]
+    )
     chain = prompt | llm
 
     result = await chain.ainvoke(payload)
@@ -126,16 +166,19 @@ async def no_context(state: AgentState) -> dict[str, Any]:
 
 
 async def rewrite_query(
-    state: AgentState, llm: BaseChatModel,
+    state: AgentState,
+    llm: BaseChatModel,
 ) -> dict[str, Any]:
     """Rewrite the question for better vector search retrieval."""
     logger.info("--- REWRITE QUERY ---")
     question = state["question"]
     rewrite_count = state.get("rewrite_count", 0)
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("human", QUERY_REWRITER_PROMPT),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("human", QUERY_REWRITER_PROMPT),
+        ]
+    )
     chain = prompt | llm
 
     result = await chain.ainvoke({"question": question})
@@ -152,7 +195,8 @@ async def rewrite_query(
 
 
 async def grade_generation(
-    state: AgentState, llm: BaseChatModel,
+    state: AgentState,
+    llm: BaseChatModel,
 ) -> dict[str, Any]:
     """Two-stage verification: hallucination check + answer quality check.
 
@@ -165,9 +209,7 @@ async def grade_generation(
     question = state["question"]
 
     # Stage 1: Hallucination check
-    documents_text = "\n\n".join(
-        doc.get("page_content", "") for doc in relevant_docs
-    )
+    documents_text = "\n\n".join(doc.get("page_content", "") for doc in relevant_docs)
     hallucination_grader = get_hallucination_grader(llm)
     hallucination_result = await hallucination_grader.ainvoke(
         {"documents": documents_text, "generation": generation}

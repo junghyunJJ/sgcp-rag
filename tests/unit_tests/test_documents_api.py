@@ -1,13 +1,16 @@
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from io import BytesIO
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from langchain_core.documents import Document
 from pydantic import ValidationError
 
+import langconnect.api.documents as documents_api
 from langconnect.database.collections import Collection
 from langconnect.models.document import SearchQuery
 from tests.unit_tests.fixtures import (
@@ -102,6 +105,35 @@ def _patch_keyword_rows(
     return connection
 
 
+@pytest.fixture(autouse=True)
+def _stub_llm_wiki_rebuild(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid real LLM rebuilds in existing document API tests."""
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "collection_id": collection_id,
+                "status": "rebuilt",
+                "source_page_count": 0,
+                "concept_page_count": 0,
+                "page_count": 0,
+                "chunk_count": 0,
+                "pack_path": f"llm_wiki/collections/{collection_id}.json",
+            }
+        )
+
+    monkeypatch.setattr(
+        documents_api,
+        "rebuild_llm_wiki",
+        fake_rebuild,
+        raising=False,
+    )
+
+
+def _upload_file(name: str = "doc.txt", content: bytes = b"hello") -> UploadFile:
+    return UploadFile(filename=name, file=BytesIO(content))
+
+
 async def test_documents_create_and_list_and_delete_and_search() -> None:
     """Test creating, listing, deleting, and searching documents."""
     async with get_async_test_client() as client:
@@ -182,6 +214,100 @@ async def test_documents_create_and_list_and_delete_and_search() -> None:
         )
         # Should still return success True or 200/204; here assume 200
         assert del_resp2.status_code in (200, 204)
+
+
+async def test_documents_create_runs_llm_wiki_rebuild_after_successful_upsert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful uploads rebuild the collection LLM Wiki after vector upsert."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+    rebuild_calls: list[str] = []
+
+    async def fake_process_document(*args: object, **kwargs: object) -> list[Document]:
+        return [Document(page_content="indexed text", metadata={"source": "doc.txt"})]
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def upsert(self, documents: list[Document]) -> list[str]:
+            assert len(documents) == 1
+            return ["chunk-a", "chunk-b"]
+
+    async def fake_rebuild(collection_id: str, **kwargs: object) -> SimpleNamespace:
+        rebuild_calls.append(collection_id)
+        return SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "collection_id": collection_id,
+                "status": "rebuilt",
+                "source_page_count": 1,
+                "concept_page_count": 1,
+                "page_count": 2,
+                "chunk_count": 2,
+                "pack_path": f"llm_wiki/collections/{collection_id}.json",
+            }
+        )
+
+    monkeypatch.setattr(documents_api, "process_document", fake_process_document)
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", fake_rebuild)
+
+    response = await documents_api.documents_create(
+        collection_id=collection_id,
+        files=[_upload_file()],
+        metadatas_json=None,
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+
+    assert rebuild_calls == [str(collection_id)]
+    assert response["success"] is True
+    assert response["added_chunk_ids"] == ["chunk-a", "chunk-b"]
+    assert response["llm_wiki"]["status"] == "rebuilt"
+    assert response["llm_wiki"]["pack_path"].endswith(f"{collection_id}.json")
+
+
+async def test_documents_create_reports_partial_success_when_rebuild_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Vector upsert is not rolled back when upload-triggered rebuild fails."""
+    collection_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    async def fake_process_document(*args: object, **kwargs: object) -> list[Document]:
+        return [Document(page_content="indexed text", metadata={"source": "doc.txt"})]
+
+    class FakeCollection:
+        def __init__(self, collection_id: str) -> None:
+            self.collection_id = collection_id
+
+        async def upsert(self, documents: list[Document]) -> list[str]:
+            return ["chunk-a"]
+
+    async def failing_rebuild(collection_id: str, **kwargs: object) -> None:
+        raise RuntimeError("wiki exploded")
+
+    monkeypatch.setattr(documents_api, "process_document", fake_process_document)
+    monkeypatch.setattr(documents_api, "Collection", FakeCollection)
+    monkeypatch.setattr(documents_api, "rebuild_llm_wiki", failing_rebuild)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents_api.documents_create(
+            collection_id=collection_id,
+            files=[_upload_file()],
+            metadatas_json=None,
+            chunk_size=1000,
+            chunk_overlap=200,
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == {
+        "success": False,
+        "error": "documents_indexed_wiki_rebuild_failed",
+        "message": "Documents were indexed, but LLM Wiki rebuild failed.",
+        "documents_indexed": True,
+        "added_chunk_ids": ["chunk-a"],
+        "wiki_rebuild_error": "wiki exploded",
+    }
 
 
 async def test_semantic_search_rejects_default_low_score_no_match(

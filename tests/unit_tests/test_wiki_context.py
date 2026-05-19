@@ -1,6 +1,11 @@
 import json
 
-from langconnect.agent.wiki_context import resolve_wiki_context
+from langconnect.agent import wiki_context
+from langconnect.agent.wiki_context import (
+    MAX_WIKI_SOURCE_REFS,
+    extract_wiki_source_refs,
+    resolve_wiki_context,
+)
 
 
 def _write_pack(tmp_path, collection_id: str, pages: list[dict[str, object]]) -> None:
@@ -193,6 +198,11 @@ def test_resolve_wiki_context_uses_env_override(tmp_path, monkeypatch):
     assert [page["id"] for page in result.selected_pages] == ["alpha"]
 
 
+def test_default_wiki_context_dir_points_to_llm_wiki_collections():
+    """Default runtime packs live under llm_wiki/collections."""
+    assert wiki_context.DEFAULT_WIKI_CONTEXT_DIR.as_posix() == "llm_wiki/collections"
+
+
 def test_resolve_wiki_context_rejects_unsafe_collection_id(tmp_path):
     """Reject collection ids that could escape the configured wiki directory."""
     escaped = tmp_path.parent / "escaped.json"
@@ -205,3 +215,53 @@ def test_resolve_wiki_context_rejects_unsafe_collection_id(tmp_path):
 
     assert result.status == "invalid_schema"
     assert result.context == ""
+
+
+def test_extract_wiki_source_refs_preserves_order_dedupes_and_caps():
+    """Flatten selected page refs in order, keeping only the first unique pairs."""
+    selected_pages = [
+        {
+            "source_refs": [
+                {"file_id": "paper-a", "chunk_id": "chunk-1"},
+                {"file_id": "paper-a", "chunk_id": "chunk-1"},
+                {"file_id": "paper-b", "chunk_id": "chunk-2"},
+            ]
+        },
+        {
+            "source_refs": [
+                {"file_id": f"paper-{index}", "chunk_id": f"chunk-{index}"}
+                for index in range(3, MAX_WIKI_SOURCE_REFS + 4)
+            ]
+        },
+    ]
+
+    refs = extract_wiki_source_refs(selected_pages)
+
+    assert refs == [
+        {"file_id": "paper-a", "chunk_id": "chunk-1"},
+        {"file_id": "paper-b", "chunk_id": "chunk-2"},
+        *[
+            {"file_id": f"paper-{index}", "chunk_id": f"chunk-{index}"}
+            for index in range(3, MAX_WIKI_SOURCE_REFS + 1)
+        ],
+    ]
+    assert len(refs) == MAX_WIKI_SOURCE_REFS
+
+
+def test_extract_wiki_source_refs_skips_malformed_refs():
+    """Promotion extraction is defensive even if selected metadata is imperfect."""
+    selected_pages = [
+        {
+            "source_refs": [
+                {"file_id": "paper-a", "chunk_id": "chunk-1"},
+                {"file_id": "", "chunk_id": "chunk-2"},
+                {"file_id": "paper-b"},
+                "not-a-ref",
+            ]
+        },
+        {"source_refs": "not-a-list"},
+    ]
+
+    assert extract_wiki_source_refs(selected_pages) == [
+        {"file_id": "paper-a", "chunk_id": "chunk-1"}
+    ]
