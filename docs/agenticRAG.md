@@ -35,6 +35,11 @@
 │    │ (database/           │                                    │
 │    │  collections.py)     │                                    │
 │    └──────────┬───────────┘                                    │
+│               │                                                │
+│    ┌──────────▼───────────┐                                    │
+│    │ get_many_by_source_  │  ← optional wiki source_ref 승격       │
+│    │ refs()               │                                    │
+│    └──────────┬───────────┘                                    │
 │               ▼                                                │
 │    ┌──────────────────┐                                        │
 │    │  PostgreSQL +    │                                        │
@@ -64,9 +69,12 @@ AgentState (TypedDict)
 ├── rewrite_count     ← 현재 루프 카운터
 ├── max_rewrites      ← 최대 재시도 (기본 3, 루프 방지)
 ├── use_wiki_context  ← optional LLM Wiki navigation layer 사용 여부
-├── wiki_context      ← generation에만 주입되는 비권위 해석 메모리
+├── wiki_context      ← raw wiki prose는 generation evidence로 사용하지 않음
 ├── selected_wiki_pages ← 선택된 wiki page metadata (최대 3개)
 ├── wiki_context_status ← disabled/selected/missing_pack/no_match/invalid_json/invalid_schema
+├── wiki_source_refs  ← 선택 page에서 추출한 bounded/deduped source refs
+├── wiki_promoted_documents ← source refs로 다시 조회한 실제 chunk들
+├── wiki_promotion_status ← disabled/not_selected/promoted/fetch_failed 등
 ├── steps             ← 실행 추적 로그 ["retrieve: found 5 documents", ...]
 └── error             ← 에러 메시지 (nullable)
 ```
@@ -140,6 +148,8 @@ documents = await collection.search(
 
 기존 검색 엔진(semantic/keyword/hybrid)을 100% 재사용합니다.
 
+`use_wiki_context=true`이고 wiki page가 선택되면, graph 시작 전에 `source_refs`가 현재 컬렉션의 실제 chunk로 best-effort 조회됩니다. `retrieve`는 이 promoted chunk를 일반 검색 결과 뒤에 붙인 뒤 `grade_documents`로 넘깁니다. 같은 chunk id가 이미 일반 검색 결과에 있으면 일반 검색 결과가 우선하고 wiki metadata로 덮어쓰지 않습니다.
+
 ### 3.2 `grade_documents(state, llm)` -- 문서 필터링
 
 ```python
@@ -160,7 +170,7 @@ context = "\n\n---\n\n".join(doc.page_content for doc in relevant_docs)
 result = await chain.ainvoke({"question": question, "context": context})
 ```
 
-`use_wiki_context=true`이면 `generate` 단계에서만 LLM Wiki context를 추가로 넣습니다. 이 context는 source of truth가 아니라 navigation layer / interpretation memory이며, 환각 검증과 citation 근거는 계속 `relevant_documents`의 raw retrieved context만 사용합니다. 자세한 pack 계약은 [llm-wiki-context.md](llm-wiki-context.md)를 참고합니다.
+`generate`에는 raw LLM Wiki title/summary/context를 넣지 않습니다. Wiki는 navigation metadata로만 선택되고, 답변에 영향을 줄 수 있는 경로는 `source_refs`가 실제 chunk로 승격되어 `relevant_documents`에 포함된 경우뿐입니다. 환각 검증과 citation 근거도 같은 `relevant_documents`만 사용합니다. 자세한 pack 계약은 [llm-wiki-context.md](llm-wiki-context.md)를 참고합니다.
 
 ### 3.4 `rewrite_query(state, llm)` -- 쿼리 재작성
 

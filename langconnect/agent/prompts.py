@@ -33,29 +33,14 @@ Formulate an improved question."""
 
 ANSWER_GENERATOR_PROMPT = """\
 You are an assistant for question-answering tasks. Use the following pieces of \
-retrieved context to answer the question. If you don't know the answer, just say \
-that you don't know. Keep the answer concise (3-5 sentences max).
+retrieved context to answer the question. Answer only with information supported \
+by the retrieved context. Do not mention sources, entities, or concepts that are \
+absent from the context. If the context is insufficient, just say that you don't \
+know. Keep the answer concise (3-5 sentences max).
 
 Question: {question}
 
 Context:
-{context}
-
-Answer:"""
-
-ANSWER_GENERATOR_WITH_WIKI_PROMPT = """\
-You are an assistant for question-answering tasks. Use the retrieved context to \
-answer the question. The LLM Wiki context is non-authoritative navigation memory: \
-it may help orient interpretation, but it is not evidence and must not be cited or \
-treated as support. If the retrieved context does not support the answer, just say \
-that you don't know. Keep the answer concise (3-5 sentences max).
-
-Question: {question}
-
-LLM Wiki context:
-{wiki_context}
-
-Retrieved context:
 {context}
 
 Answer:"""

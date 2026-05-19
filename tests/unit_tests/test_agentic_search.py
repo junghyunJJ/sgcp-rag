@@ -5,6 +5,8 @@ no database or API keys required.
 """
 
 import operator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, get_args, get_origin, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -66,6 +68,9 @@ def _make_state(**overrides: object) -> AgentState:
         "wiki_context": "",
         "selected_wiki_pages": [],
         "wiki_context_status": "disabled",
+        "wiki_source_refs": [],
+        "wiki_promoted_documents": [],
+        "wiki_promotion_status": "disabled",
     }
     base.update(overrides)
     return base
@@ -116,6 +121,9 @@ def test_agent_state_defaults():
     assert state["wiki_context"] == ""
     assert state["selected_wiki_pages"] == []
     assert state["wiki_context_status"] == "disabled"
+    assert state["wiki_source_refs"] == []
+    assert state["wiki_promoted_documents"] == []
+    assert state["wiki_promotion_status"] == "disabled"
 
 
 @pytest.mark.parametrize("field_name", ["steps", "query_rewrites"])
@@ -200,12 +208,90 @@ async def test_retrieve_node_forwards_min_score(mock_collection_class):
     )
 
 
+@patch("langconnect.agent.nodes.Collection")
+async def test_retrieve_node_appends_wiki_promoted_documents(mock_collection_class):
+    """Retrieve should merge wiki-promoted chunks before document grading."""
+    promoted_doc = {
+        "id": "wiki-doc",
+        "page_content": "Promoted source-ref chunk text.",
+        "metadata": {"wiki_promoted": True},
+        "score": 1.0,
+    }
+    mock_instance = AsyncMock()
+    mock_instance.search = AsyncMock(return_value=[MOCK_DOCUMENTS[0]])
+    mock_collection_class.return_value = mock_instance
+
+    state = _make_state(
+        use_wiki_context=True,
+        wiki_context_status="selected",
+        wiki_source_refs=[{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+        wiki_promoted_documents=[promoted_doc],
+        wiki_promotion_status="promoted",
+    )
+
+    result = await retrieve(state)
+
+    assert result["documents"] == [MOCK_DOCUMENTS[0], promoted_doc]
+    assert "wiki_promotion: promoted 1/1 refs" in result["steps"]
+
+
+@patch("langconnect.agent.nodes.Collection")
+async def test_retrieve_node_keeps_normal_result_on_wiki_collision(
+    mock_collection_class,
+):
+    """Normal search results should win when a promoted chunk has the same id."""
+    promoted_collision = {
+        "id": "doc-1",
+        "page_content": "Different promoted text.",
+        "metadata": {"wiki_promoted": True},
+        "score": 1.0,
+    }
+    mock_instance = AsyncMock()
+    mock_instance.search = AsyncMock(return_value=[MOCK_DOCUMENTS[0]])
+    mock_collection_class.return_value = mock_instance
+
+    result = await retrieve(
+        _make_state(
+            use_wiki_context=True,
+            wiki_context_status="selected",
+            wiki_source_refs=[{"file_id": "paper-a", "chunk_id": "doc-1"}],
+            wiki_promoted_documents=[promoted_collision],
+            wiki_promotion_status="promoted",
+        )
+    )
+
+    assert result["documents"] == [MOCK_DOCUMENTS[0]]
+    assert result["documents"][0]["metadata"] == {"source": "test.pdf"}
+    assert "wiki_promotion: promoted 0/1 refs" in result["steps"]
+
+
+@patch("langconnect.agent.nodes.Collection")
+async def test_retrieve_node_reports_wiki_promotion_fetch_failure(
+    mock_collection_class,
+):
+    """Fetch failures should remain visible instead of looking like stale refs."""
+    mock_instance = AsyncMock()
+    mock_instance.search = AsyncMock(return_value=[MOCK_DOCUMENTS[0]])
+    mock_collection_class.return_value = mock_instance
+
+    result = await retrieve(
+        _make_state(
+            use_wiki_context=True,
+            wiki_context_status="selected",
+            wiki_source_refs=[{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+            wiki_promoted_documents=[],
+            wiki_promotion_status="fetch_failed",
+        )
+    )
+
+    assert "wiki_promotion: fetch_failed" in result["steps"]
+    assert "wiki_promotion: promoted 0/1 refs" not in result["steps"]
+
+
 async def test_grade_documents_all_relevant():
     """All documents graded as relevant should be kept."""
     mock_grader = AsyncMock()
-    mock_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="yes")
-    )
+    mock_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
 
     state = _make_state(documents=MOCK_DOCUMENTS)
 
@@ -259,7 +345,9 @@ async def test_generate_node():
         mock_llm = MagicMock()
         result = await generate(state, mock_llm)
 
-    assert result["generation"] == "LangGraph is a framework for building stateful agents."
+    assert (
+        result["generation"] == "LangGraph is a framework for building stateful agents."
+    )
     assert "generate:" in result["steps"][-1]
     mock_chain.ainvoke.assert_awaited_once_with(
         {
@@ -273,8 +361,8 @@ async def test_generate_node():
     )
 
 
-async def test_generate_node_with_wiki_context_uses_wiki_prompt():
-    """Generate should include wiki context only when it is selected."""
+async def test_generate_node_with_wiki_context_does_not_use_wiki_prompt():
+    """Generate should never pass raw wiki prose as answer evidence."""
     mock_result = MagicMock()
     mock_result.content = "LangGraph is a framework for building stateful agents."
 
@@ -298,7 +386,8 @@ async def test_generate_node_with_wiki_context_uses_wiki_prompt():
         result = await generate(state, mock_llm)
 
     prompt_text = mock_prompt_cls.from_messages.call_args.args[0][0][1]
-    assert "non-authoritative navigation memory" in prompt_text
+    assert "LLM Wiki context" not in prompt_text
+    assert "non-authoritative navigation memory" not in prompt_text
     mock_chain.ainvoke.assert_awaited_once_with(
         {
             "question": "What is LangGraph?",
@@ -307,10 +396,11 @@ async def test_generate_node_with_wiki_context_uses_wiki_prompt():
                 "\n\n---\n\n"
                 "Python is a programming language."
             ),
-            "wiki_context": "Non-authoritative navigation memory: LangGraph agents.",
         }
     )
-    assert result["generation"] == "LangGraph is a framework for building stateful agents."
+    assert (
+        result["generation"] == "LangGraph is a framework for building stateful agents."
+    )
     assert "wiki_context: selected 1 pages" in result["steps"]
 
 
@@ -353,9 +443,7 @@ async def test_rewrite_query_node():
 
     assert result["question"] == "How does LangGraph work for building agents?"
     assert result["rewrite_count"] == 2
-    assert result["query_rewrites"] == [
-        "How does LangGraph work for building agents?"
-    ]
+    assert result["query_rewrites"] == ["How does LangGraph work for building agents?"]
     assert "rewrite_query:" in result["steps"][-1]
 
 
@@ -366,9 +454,7 @@ async def test_grade_generation_passes():
         return_value=MagicMock(binary_score="yes")
     )
     mock_answer_grader = AsyncMock()
-    mock_answer_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="yes")
-    )
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
 
     state = _make_state(
         generation="LangGraph builds stateful agents.",
@@ -377,15 +463,61 @@ async def test_grade_generation_passes():
     )
 
     with (
-        patch("langconnect.agent.nodes.get_hallucination_grader", return_value=mock_hallucination_grader),
-        patch("langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader),
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
     ):
         mock_llm = MagicMock()
         result = await grade_generation(state, mock_llm)
 
     assert "PASSED" in result["steps"][-1]
     hallucination_payload = mock_hallucination_grader.ainvoke.await_args.args[0]
-    assert "Non-authoritative navigation memory" not in hallucination_payload["documents"]
+    assert (
+        "Non-authoritative navigation memory" not in hallucination_payload["documents"]
+    )
+
+
+async def test_grade_generation_uses_promoted_chunk_text_not_wiki_summary():
+    """Hallucination grading should see promoted chunk text, not wiki summaries."""
+    mock_hallucination_grader = AsyncMock()
+    mock_hallucination_grader.ainvoke = AsyncMock(
+        return_value=MagicMock(binary_score="yes")
+    )
+    mock_answer_grader = AsyncMock()
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
+    promoted_doc = {
+        "id": "wiki-doc",
+        "page_content": "Grounded promoted source-ref chunk.",
+        "metadata": {"wiki_promoted": True},
+        "score": 1.0,
+    }
+
+    with (
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
+    ):
+        result = await grade_generation(
+            _make_state(
+                generation="Grounded promoted source-ref chunk.",
+                relevant_documents=[promoted_doc],
+                wiki_context="Summary: Raw wiki-only entity.",
+            ),
+            MagicMock(),
+        )
+
+    assert "PASSED" in result["steps"][-1]
+    hallucination_payload = mock_hallucination_grader.ainvoke.await_args.args[0]
+    assert "Grounded promoted source-ref chunk." in hallucination_payload["documents"]
+    assert "Raw wiki-only entity" not in hallucination_payload["documents"]
 
 
 async def test_grade_generation_fails_hallucination():
@@ -400,7 +532,10 @@ async def test_grade_generation_fails_hallucination():
         relevant_documents=MOCK_DOCUMENTS,
     )
 
-    with patch("langconnect.agent.nodes.get_hallucination_grader", return_value=mock_hallucination_grader):
+    with patch(
+        "langconnect.agent.nodes.get_hallucination_grader",
+        return_value=mock_hallucination_grader,
+    ):
         mock_llm = MagicMock()
         result = await grade_generation(state, mock_llm)
 
@@ -414,9 +549,7 @@ async def test_grade_generation_fails_answer_quality():
         return_value=MagicMock(binary_score="yes")
     )
     mock_answer_grader = AsyncMock()
-    mock_answer_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="no")
-    )
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="no"))
 
     state = _make_state(
         generation="I don't know.",
@@ -424,13 +557,97 @@ async def test_grade_generation_fails_answer_quality():
     )
 
     with (
-        patch("langconnect.agent.nodes.get_hallucination_grader", return_value=mock_hallucination_grader),
-        patch("langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader),
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
     ):
         mock_llm = MagicMock()
         result = await grade_generation(state, mock_llm)
 
     assert "FAILED answer quality" in result["steps"][-1]
+
+
+async def test_collection_get_many_by_source_refs_fetches_exact_chunks(monkeypatch):
+    """Collection helper should fetch collection-bound chunks by file/chunk pair."""
+    from langconnect.database.collections import Collection
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, ...]] = []
+
+        async def fetch(self, *args: object) -> list[dict[str, object]]:
+            self.calls.append(args)
+            return [
+                {
+                    "id": "chunk-2",
+                    "page_content": "Second chunk",
+                    "metadata": '{"file_id": "paper-b", "source": "b.pdf"}',
+                },
+                {
+                    "id": "chunk-1",
+                    "page_content": "First chunk",
+                    "metadata": {"file_id": "paper-a", "source": "a.pdf"},
+                },
+            ]
+
+    connection = FakeConnection()
+
+    @asynccontextmanager
+    async def fake_connection() -> AsyncGenerator[FakeConnection, None]:
+        yield connection
+
+    monkeypatch.setattr(
+        "langconnect.database.collections.get_db_connection",
+        fake_connection,
+    )
+
+    docs = await Collection("collection-id").get_many_by_source_refs(
+        [
+            {"file_id": "paper-b", "chunk_id": "chunk-2"},
+            {"file_id": "paper-a", "chunk_id": "chunk-1"},
+            {"file_id": "", "chunk_id": "ignored"},
+        ]
+    )
+
+    sql, collection_id, file_ids, chunk_ids = connection.calls[0]
+    assert "e.id::text = refs.chunk_id" in str(sql)
+    assert "e.cmetadata->>'file_id' = refs.file_id" in str(sql)
+    assert "ORDER BY refs.ord" in str(sql)
+    assert collection_id == "collection-id"
+    assert file_ids == ["paper-b", "paper-a"]
+    assert chunk_ids == ["chunk-2", "chunk-1"]
+    assert docs == [
+        {
+            "id": "chunk-2",
+            "page_content": "Second chunk",
+            "content": "Second chunk",
+            "metadata": {
+                "file_id": "paper-b",
+                "source": "b.pdf",
+                "wiki_promoted": True,
+                "wiki_file_id": "paper-b",
+                "wiki_chunk_id": "chunk-2",
+            },
+            "score": 1.0,
+        },
+        {
+            "id": "chunk-1",
+            "page_content": "First chunk",
+            "content": "First chunk",
+            "metadata": {
+                "file_id": "paper-a",
+                "source": "a.pdf",
+                "wiki_promoted": True,
+                "wiki_file_id": "paper-a",
+                "wiki_chunk_id": "chunk-1",
+            },
+            "score": 1.0,
+        },
+    ]
 
 
 # --- Graph Routing Tests ---
@@ -503,10 +720,13 @@ async def test_run_agentic_search_error_handling():
     """run_agentic_search should catch exceptions and return error dict."""
     from langconnect.agent import run_agentic_search
 
-    with patch(
-        "langconnect.agent.build_agentic_rag_graph",
-        side_effect=RuntimeError("LLM unavailable"),
-    ), patch("langconnect.agent.get_agent_llm", return_value=MagicMock()):
+    with (
+        patch(
+            "langconnect.agent.build_agentic_rag_graph",
+            side_effect=RuntimeError("LLM unavailable"),
+        ),
+        patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
+    ):
         result = await run_agentic_search(
             question="test?",
             collection_id="fake-uuid",
@@ -552,10 +772,16 @@ async def test_run_agentic_search_passes_min_score_to_initial_state():
 
 
 async def test_run_agentic_search_resolves_wiki_context_when_enabled():
-    """run_agentic_search should load selected wiki context into graph state."""
+    """run_agentic_search should load selected wiki refs into graph state."""
     from langconnect.agent import run_agentic_search
     from langconnect.agent.wiki_context import WikiContextResult
 
+    promoted_doc = {
+        "id": "wiki-doc",
+        "page_content": "Promoted source-ref chunk text.",
+        "metadata": {"wiki_promoted": True},
+        "score": 1.0,
+    }
     mock_graph = AsyncMock()
     mock_graph.ainvoke = AsyncMock(
         return_value={
@@ -569,15 +795,24 @@ async def test_run_agentic_search_resolves_wiki_context_when_enabled():
             "wiki_context_status": "selected",
         }
     )
+    mock_collection = AsyncMock()
+    mock_collection.get_many_by_source_refs = AsyncMock(return_value=[promoted_doc])
 
     with (
         patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
         patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+        patch("langconnect.agent.Collection", return_value=mock_collection),
         patch(
             "langconnect.agent.resolve_wiki_context",
             return_value=WikiContextResult(
                 context="Non-authoritative navigation memory.",
-                selected_pages=[{"id": "wiki", "title": "Wiki"}],
+                selected_pages=[
+                    {
+                        "id": "wiki",
+                        "title": "Wiki",
+                        "source_refs": [{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+                    }
+                ],
                 status="selected",
             ),
         ) as mock_resolve,
@@ -589,12 +824,85 @@ async def test_run_agentic_search_resolves_wiki_context_when_enabled():
         )
 
     mock_resolve.assert_called_once_with("fake-uuid", "test?")
+    mock_collection.get_many_by_source_refs.assert_awaited_once_with(
+        [{"file_id": "paper-a", "chunk_id": "wiki-doc"}]
+    )
     initial_state = mock_graph.ainvoke.await_args.args[0]
     assert initial_state["use_wiki_context"] is True
-    assert initial_state["wiki_context"] == "Non-authoritative navigation memory."
-    assert initial_state["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert initial_state["wiki_context"] == ""
+    assert initial_state["selected_wiki_pages"] == [
+        {
+            "id": "wiki",
+            "title": "Wiki",
+            "source_refs": [{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+        }
+    ]
     assert initial_state["wiki_context_status"] == "selected"
+    assert initial_state["wiki_source_refs"] == [
+        {"file_id": "paper-a", "chunk_id": "wiki-doc"}
+    ]
+    assert initial_state["wiki_promoted_documents"] == [promoted_doc]
+    assert initial_state["wiki_promotion_status"] == "promoted"
     assert result["selected_wiki_pages"] == [{"id": "wiki", "title": "Wiki"}]
+    assert result["wiki_context_status"] == "selected"
+
+
+async def test_run_agentic_search_best_effort_wiki_promotion_failure():
+    """Wiki source-ref fetch failures should not fail ordinary retrieval."""
+    from langconnect.agent import run_agentic_search
+    from langconnect.agent.wiki_context import WikiContextResult
+
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        side_effect=lambda state: {
+            "generation": "answer",
+            "relevant_documents": [],
+            "steps": state["steps"],
+            "query_rewrites": [],
+            "rewrite_count": 0,
+            "error": None,
+            "selected_wiki_pages": state["selected_wiki_pages"],
+            "wiki_context_status": state["wiki_context_status"],
+        }
+    )
+    mock_collection = AsyncMock()
+    mock_collection.get_many_by_source_refs = AsyncMock(
+        side_effect=RuntimeError("database unavailable")
+    )
+
+    with (
+        patch("langconnect.agent.get_agent_llm", return_value=MagicMock()),
+        patch("langconnect.agent.build_agentic_rag_graph", return_value=mock_graph),
+        patch("langconnect.agent.Collection", return_value=mock_collection),
+        patch(
+            "langconnect.agent.resolve_wiki_context",
+            return_value=WikiContextResult(
+                context="Raw wiki summary.",
+                selected_pages=[
+                    {
+                        "id": "wiki",
+                        "title": "Wiki",
+                        "source_refs": [{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+                    }
+                ],
+                status="selected",
+            ),
+        ),
+    ):
+        result = await run_agentic_search(
+            question="test?",
+            collection_id="fake-uuid",
+            use_wiki_context=True,
+        )
+
+    initial_state = mock_graph.ainvoke.await_args.args[0]
+    assert initial_state["wiki_source_refs"] == [
+        {"file_id": "paper-a", "chunk_id": "wiki-doc"}
+    ]
+    assert initial_state["wiki_promoted_documents"] == []
+    assert initial_state["wiki_promotion_status"] == "fetch_failed"
+    assert "wiki_promotion: fetch_failed" in result["steps"]
+    assert result["error"] is None
     assert result["wiki_context_status"] == "selected"
 
 
@@ -779,7 +1087,9 @@ async def test_run_agentic_search_auto_retries_openai_after_ollama_llm_error():
             new=AsyncMock(return_value=True),
         ),
         patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
-        patch("langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph),
+        patch(
+            "langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph
+        ),
     ):
         result = await run_agentic_search(
             question="test?",
@@ -874,7 +1184,9 @@ async def test_run_agentic_search_auto_does_not_retry_unrelated_http_errors():
             new=AsyncMock(return_value=True),
         ),
         patch("langconnect.agent.get_agent_llm", side_effect=fake_get_agent_llm),
-        patch("langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph),
+        patch(
+            "langconnect.agent.build_agentic_rag_graph", side_effect=fake_build_graph
+        ),
     ):
         result = await run_agentic_search(
             question="test?",
@@ -927,17 +1239,13 @@ async def test_full_graph_e2e():
 
     # Mock graders — all return "yes"
     mock_doc_grader = AsyncMock()
-    mock_doc_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="yes")
-    )
+    mock_doc_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
     mock_hallucination_grader = AsyncMock()
     mock_hallucination_grader.ainvoke = AsyncMock(
         return_value=MagicMock(binary_score="yes")
     )
     mock_answer_grader = AsyncMock()
-    mock_answer_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="yes")
-    )
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
 
     # Mock LLM for generate/rewrite (prompt | llm → chain)
     mock_answer = MagicMock()
@@ -953,9 +1261,16 @@ async def test_full_graph_e2e():
     # Patch Collection.search and all grader factories
     with (
         patch("langconnect.agent.nodes.Collection") as mock_coll_cls,
-        patch("langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader),
-        patch("langconnect.agent.nodes.get_hallucination_grader", return_value=mock_hallucination_grader),
-        patch("langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader),
+        patch(
+            "langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader
+        ),
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
         patch("langconnect.agent.nodes.ChatPromptTemplate") as mock_prompt_cls,
     ):
         # Collection.search returns MOCK_DOCUMENTS
@@ -978,6 +1293,70 @@ async def test_full_graph_e2e():
     assert any("PASSED" in step for step in result["steps"])
     assert result["rewrite_count"] == 0  # No rewrites needed
     assert len(result["relevant_documents"]) == 2
+
+
+async def test_full_graph_generates_from_relevant_wiki_promoted_doc_without_hits():
+    """Promoted real chunks can carry generation when normal search has no hits."""
+    from langconnect.agent.graph import build_agentic_rag_graph
+
+    promoted_doc = {
+        "id": "wiki-doc",
+        "page_content": "Promoted chunk explains LangGraph state.",
+        "metadata": {"wiki_promoted": True},
+        "score": 1.0,
+    }
+    mock_doc_grader = AsyncMock()
+    mock_doc_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
+    mock_hallucination_grader = AsyncMock()
+    mock_hallucination_grader.ainvoke = AsyncMock(
+        return_value=MagicMock(binary_score="yes")
+    )
+    mock_answer_grader = AsyncMock()
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
+    mock_answer = MagicMock()
+    mock_answer.content = "Promoted chunk explains LangGraph state."
+    mock_chain = MagicMock()
+    mock_chain.ainvoke = AsyncMock(return_value=mock_answer)
+    mock_llm = MagicMock()
+    mock_llm.__or__ = MagicMock(return_value=mock_chain)
+
+    with (
+        patch("langconnect.agent.nodes.Collection") as mock_coll_cls,
+        patch(
+            "langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader
+        ),
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
+        patch("langconnect.agent.nodes.ChatPromptTemplate") as mock_prompt_cls,
+    ):
+        mock_instance = AsyncMock()
+        mock_instance.search = AsyncMock(return_value=[])
+        mock_coll_cls.return_value = mock_instance
+        mock_prompt = MagicMock()
+        mock_prompt.__or__ = MagicMock(return_value=mock_chain)
+        mock_prompt_cls.from_messages = MagicMock(return_value=mock_prompt)
+
+        graph = build_agentic_rag_graph(mock_llm)
+        result = await graph.ainvoke(
+            _make_state(
+                use_wiki_context=True,
+                wiki_context_status="selected",
+                wiki_source_refs=[{"file_id": "paper-a", "chunk_id": "wiki-doc"}],
+                wiki_promoted_documents=[promoted_doc],
+                wiki_promotion_status="promoted",
+                max_rewrites=0,
+            )
+        )
+
+    assert result["generation"] == "Promoted chunk explains LangGraph state."
+    assert result["documents"] == [promoted_doc]
+    assert result["relevant_documents"] == [promoted_doc]
+    assert any(step == "wiki_promotion: promoted 1/1 refs" for step in result["steps"])
 
 
 async def test_full_graph_e2e_with_rewrite():
@@ -1007,9 +1386,7 @@ async def test_full_graph_e2e_with_rewrite():
         return_value=MagicMock(binary_score="yes")
     )
     mock_answer_grader = AsyncMock()
-    mock_answer_grader.ainvoke = AsyncMock(
-        return_value=MagicMock(binary_score="yes")
-    )
+    mock_answer_grader.ainvoke = AsyncMock(return_value=MagicMock(binary_score="yes"))
 
     mock_answer = MagicMock()
     mock_answer.content = "Rewritten answer about LangGraph."
@@ -1022,9 +1399,16 @@ async def test_full_graph_e2e_with_rewrite():
 
     with (
         patch("langconnect.agent.nodes.Collection") as mock_coll_cls,
-        patch("langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader),
-        patch("langconnect.agent.nodes.get_hallucination_grader", return_value=mock_hallucination_grader),
-        patch("langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader),
+        patch(
+            "langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader
+        ),
+        patch(
+            "langconnect.agent.nodes.get_hallucination_grader",
+            return_value=mock_hallucination_grader,
+        ),
+        patch(
+            "langconnect.agent.nodes.get_answer_grader", return_value=mock_answer_grader
+        ),
         patch("langconnect.agent.nodes.ChatPromptTemplate") as mock_prompt_cls,
     ):
         mock_instance = AsyncMock()
@@ -1057,8 +1441,12 @@ async def test_full_graph_no_context_does_not_generate():
 
     with (
         patch("langconnect.agent.nodes.Collection") as mock_coll_cls,
-        patch("langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader),
-        patch("langconnect.agent.graph.generate", new_callable=AsyncMock) as mock_generate,
+        patch(
+            "langconnect.agent.nodes.get_document_grader", return_value=mock_doc_grader
+        ),
+        patch(
+            "langconnect.agent.graph.generate", new_callable=AsyncMock
+        ) as mock_generate,
     ):
         mock_instance = AsyncMock()
         mock_instance.search = AsyncMock(return_value=[])

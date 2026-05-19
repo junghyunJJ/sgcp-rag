@@ -88,6 +88,7 @@ def test_ollama_provider_uses_env_base_url():
     assert isinstance(llm, ChatOllama)
     assert llm.model == "qwen3.5:122b"
     assert llm.base_url == "http://localhost:5000"
+    assert llm.reasoning is False
 
 
 def test_ollama_provider_uses_agent_base_url_over_global():
@@ -110,6 +111,7 @@ def test_ollama_provider_uses_agent_base_url_over_global():
     assert isinstance(llm, ChatOllama)
     assert llm.model == "qwen3.5:122b"
     assert llm.base_url == "http://localhost:6200"
+    assert llm.reasoning is False
 
 
 def test_ollama_provider_defaults_to_agentic_rag_model():
@@ -121,3 +123,4 @@ def test_ollama_provider_defaults_to_agentic_rag_model():
 
     assert isinstance(llm, ChatOllama)
     assert llm.model == "qwen3.5:122b"
+    assert llm.reasoning is False

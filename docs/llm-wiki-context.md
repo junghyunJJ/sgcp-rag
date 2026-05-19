@@ -1,6 +1,6 @@
 # LLM Wiki Context for Agentic RAG
 
-LLM Wiki context is an optional generation-time navigation layer. It is not a source of truth, not citation evidence, and not part of retrieval or query rewriting.
+LLM Wiki context is an optional navigation layer. It is not a source of truth, not citation evidence, and not a raw generation prompt channel.
 
 ## Contract
 
@@ -9,7 +9,9 @@ LLM Wiki context is an optional generation-time navigation layer. It is not a so
 - Override directory: `LANGCONNECT_WIKI_CONTEXT_DIR`.
 - Maximum selected pages: 3.
 - Selection output is metadata only: page id, title, summary, score, and navigation `source_refs`.
-- Grounding evidence remains `relevant_documents`; hallucination grading must not include wiki context.
+- When pages are selected, up to 8 ordered and deduplicated `source_refs` can be promoted into real collection chunks before document relevance grading.
+- Grounding evidence remains `relevant_documents`; hallucination grading must not include raw wiki titles or summaries.
+- Raw wiki prose is never answer evidence. If a wiki-selected concept appears in an answer, it must also appear in a promoted or normally retrieved chunk that passed grading.
 - The runtime JSON pack is the public activation signal. Markdown pages, `manifest.json`, and `log.md` are generated inspection artifacts.
 
 ## Pack Schema
@@ -31,7 +33,7 @@ LLM Wiki context is an optional generation-time navigation layer. It is not a so
 }
 ```
 
-All page fields above are required. `source_refs` are navigation breadcrumbs back to retrieved material; they do not make a wiki page authoritative.
+All page fields above are required. `source_refs` are navigation breadcrumbs back to retrieved material; they do not make a wiki page authoritative. Runtime promotion fetches exact chunks by `(file_id, chunk_id)` inside the current collection.
 
 ## Generated Rebuild Outputs
 
@@ -95,6 +97,8 @@ Retry recovery is the manual rebuild endpoint or MCP tool.
 
 ## Runtime Behavior
 
-`run_agentic_search` resolves wiki context before starting the graph. If pages are selected, `generate` uses a prompt that explicitly labels the wiki text as non-authoritative navigation memory. Retrieval, query rewriting, document relevance grading, hallucination grading, and answer grading continue to operate from the normal raw retrieved documents.
+`run_agentic_search` resolves wiki metadata before starting the graph. If pages are selected, the selected pages remain response metadata, and their source refs are fetched best-effort from the current collection. Fetch failures or stale refs degrade to zero promoted chunks; ordinary retrieval continues.
+
+`retrieve` appends promoted chunks to normal search results before `grade_documents`, deduping by chunk id so normal search results win collisions. `generate` receives only `question` and retrieved `context`; it does not receive raw `wiki_context`. Hallucination grading uses the same `relevant_documents` evidence set, including any promoted real chunks that passed document grading.
 
 Rebuild publishes transactionally: Markdown and manifest artifacts are staged first, the runtime pack is schema-validated, then `llm_wiki/collections/{collection_id}.json` is replaced last. If validation or pre-commit publish fails, the previous public wiki remains visible to `agentic_search`.

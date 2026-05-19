@@ -16,6 +16,15 @@ WikiContextStatus = Literal[
     "invalid_schema",
 ]
 
+WikiPromotionStatus = Literal[
+    "disabled",
+    "not_selected",
+    "no_valid_source_refs",
+    "promoted",
+    "no_matching_source_refs",
+    "fetch_failed",
+]
+
 
 class AgentState(TypedDict):
     """State flowing through the Agentic RAG graph."""
@@ -39,3 +48,6 @@ class AgentState(TypedDict):
     wiki_context: str
     selected_wiki_pages: list[dict[str, Any]]
     wiki_context_status: WikiContextStatus
+    wiki_source_refs: list[dict[str, str]]
+    wiki_promoted_documents: list[dict[str, Any]]
+    wiki_promotion_status: WikiPromotionStatus
