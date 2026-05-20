@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { RefreshCw, Plus, Trash2, Folder, FileText, Loader2, Database, FolderOpen, Archive, BookOpen, Info, X } from 'lucide-react'
 import { CollectionWithStats, Collection } from '@/types/collection'
 import { toast } from 'sonner'
@@ -377,6 +378,9 @@ export default function CollectionsPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                           {t('collections.table.metadata')}
                         </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          {t('collections.table.wiki')}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -510,6 +514,17 @@ export default function CollectionsPage() {
                                 <span className="text-gray-400 dark:text-gray-400 italic">{t('common.none')}</span>
                               )}
                             </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <Button asChild variant="outline" size="sm">
+                              <Link
+                                href={`/collections/${collection.uuid}/wiki`}
+                                aria-label={`Open wiki for ${collection.name}`}
+                              >
+                                <BookOpen className="h-4 w-4" />
+                                <span>{t('collections.table.wiki')}</span>
+                              </Link>
+                            </Button>
                           </td>
                         </tr>
                       ))}

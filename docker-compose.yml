@@ -53,6 +53,7 @@ services:
       ALLOW_ORIGINS: '["http://localhost:3005", "http://localhost:8888", "http://localhost", "http://127.0.0.1:3005", "http://127.0.0.1:8888", "http://127.0.0.1"]'
     volumes:
       - ./langconnect:/app/langconnect
+      - ./llm_wiki:/app/llm_wiki
     networks:
       - langconnect-network
       

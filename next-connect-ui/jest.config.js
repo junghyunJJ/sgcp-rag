@@ -16,6 +16,7 @@ const customJestConfig = {
   transformIgnorePatterns: [
     'node_modules/(?!(jose|openid-client|@panva)/)',
   ],
+  modulePathIgnorePatterns: ['<rootDir>/.next/'],
   testMatch: [
     '**/__tests__/**/*.[jt]s?(x)',
     '**/?(*.)+(spec|test).[jt]s?(x)'

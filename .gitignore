@@ -171,6 +171,9 @@ mcp/mcp_config.json
 # YoYo AI version control directory
 .yoyo/
 
+# Generated LLM Wiki artifacts
+llm_wiki/
+
 
 *method*
 *methods*

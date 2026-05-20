@@ -152,6 +152,7 @@ async def test_rebuild_pages_collection_and_publishes_generated_artifacts(
     index_text = (collection_dir / "index.md").read_text(encoding="utf-8")
     assert "## Sources" in index_text
     assert "## Concepts" in index_text
+    assert index_text.index("## Concepts") < index_text.index("## Sources")
     assert "A bounded source summary" in index_text
     assert "A concept summary" in index_text
 

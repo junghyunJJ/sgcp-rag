@@ -42,7 +42,8 @@ export const en = {
       collection: 'Collection',
       stats: 'Statistics',
       uuid: 'UUID',
-      metadata: 'Metadata'
+      metadata: 'Metadata',
+      wiki: 'Wiki'
     },
     deleteConfirm: {
       title: 'Delete Confirmation',
@@ -72,6 +73,24 @@ export const en = {
       createSuccess: 'Collection created successfully',
       createError: 'Failed to create collection'
     }
+  },
+  wiki: {
+    title: 'LLM Wiki',
+    backToCollections: 'Back to Collections',
+    generatedNavigationNotice: 'Generated wiki navigation. Use original retrieved chunks as evidence.',
+    index: 'Index',
+    sources: 'Sources',
+    concepts: 'Concepts',
+    noSources: 'No sources',
+    noConcepts: 'No concepts',
+    notGeneratedTitle: 'Wiki not generated yet',
+    notGeneratedDescription: 'Build generated navigation for this collection from the current documents.',
+    rebuild: 'Rebuild Wiki',
+    rebuilding: 'Rebuilding...',
+    loadError: 'Failed to load LLM Wiki',
+    pageLoadError: 'Failed to load wiki page',
+    rebuildSuccess: 'Wiki rebuilt successfully',
+    rebuildError: 'Failed to rebuild wiki',
   },
   documents: {
     title: 'Document Management',
@@ -178,8 +197,8 @@ export const en = {
     korean: '한국어'
   },
   main: {
-    title: '🔗 LangConnect Client',
-    subtitle: 'Welcome to <strong>LangConnect</strong>.',
+    title: '🔗 llmwiki',
+    subtitle: 'Welcome to <strong>llmwiki</strong>.',
     description: 'A powerful document management and search system powered by LangChain and PostgreSQL.',
     keyFeatures: '🚀 Key Features',
     keyFeaturesDescription: 'This application provides a comprehensive interface for document management with advanced search capabilities:',
@@ -222,7 +241,7 @@ export const en = {
     },
     about: {
       title: '📌 About This Project',
-      description: '<strong>LangConnect</strong> is an open-source project that combines the following technologies:',
+      description: '<strong>llmwiki</strong> is an open-source project that combines the following technologies:',
       techStack: [
         '<strong>LangChain</strong> - Document processing and embeddings',
         '<strong>PostgreSQL</strong> - Vector storage with pgvector extension',

@@ -42,7 +42,8 @@ export const ko = {
       collection: '컬렉션',
       stats: '통계',
       uuid: 'UUID',
-      metadata: '메타데이터'
+      metadata: '메타데이터',
+      wiki: '위키'
     },
     deleteConfirm: {
       title: '삭제 확인',
@@ -72,6 +73,24 @@ export const ko = {
       createSuccess: '컬렉션이 성공적으로 생성되었습니다',
       createError: '컬렉션 생성 실패'
     }
+  },
+  wiki: {
+    title: 'LLM 위키',
+    backToCollections: '컬렉션으로 돌아가기',
+    generatedNavigationNotice: '생성된 위키 내비게이션입니다. 근거 확인에는 원본 검색 청크를 사용하세요.',
+    index: '인덱스',
+    sources: '소스',
+    concepts: '개념',
+    noSources: '소스 없음',
+    noConcepts: '개념 없음',
+    notGeneratedTitle: 'Wiki not generated yet',
+    notGeneratedDescription: '현재 문서를 기반으로 이 컬렉션의 생성형 내비게이션을 만듭니다.',
+    rebuild: 'Rebuild Wiki',
+    rebuilding: '재생성 중...',
+    loadError: 'LLM 위키를 불러오지 못했습니다',
+    pageLoadError: '위키 페이지를 불러오지 못했습니다',
+    rebuildSuccess: '위키가 재생성되었습니다',
+    rebuildError: '위키 재생성 실패',
   },
   documents: {
     title: '문서 관리',
@@ -177,8 +196,8 @@ export const ko = {
     korean: '한국어'
   },
   main: {
-    title: '🔗 LangConnect 클라이언트',
-    subtitle: '<strong>LangConnect</strong>에 오신 것을 환영합니다.',
+    title: '🔗 llmwiki',
+    subtitle: '<strong>llmwiki</strong>에 오신 것을 환영합니다.',
     description: 'LangChain과 PostgreSQL로 구동되는 강력한 문서 관리 및 검색 시스템입니다.',
     keyFeatures: '🚀 주요 기능',
     keyFeaturesDescription: '이 애플리케이션은 고급 검색 기능을 갖춘 문서 관리를 위한 포괄적인 인터페이스를 제공합니다:',
@@ -221,7 +240,7 @@ export const ko = {
     },
     about: {
       title: '📌 이 프로젝트에 대해',
-      description: '<strong>LangConnect</strong>는 다음의 기술들을 결합한 오픈소스 프로젝트입니다:',
+      description: '<strong>llmwiki</strong>는 다음의 기술들을 결합한 오픈소스 프로젝트입니다:',
       techStack: [
         '<strong>LangChain</strong> - 문서 처리 및 임베딩',
         '<strong>PostgreSQL</strong> - pgvector 확장을 통한 벡터 저장',

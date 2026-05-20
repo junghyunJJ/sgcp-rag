@@ -11,10 +11,17 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from langconnect.agent.config import get_agent_llm
 from langconnect.agent.wiki_context import _validate_pages
 from langconnect.database.collections import Collection
-from langconnect.models.llm_wiki import LLMWikiRebuildResponse
+from langconnect.models.llm_wiki import (
+    LLMWikiIndexResponse,
+    LLMWikiManifestItem,
+    LLMWikiPageResponse,
+    LLMWikiRebuildResponse,
+)
 
 COLLECTION_PAGE_SIZE = 100
 SOURCE_MAX_CHUNKS = 12
@@ -31,10 +38,31 @@ CONCEPT_KEYWORD_LIMIT = 12
 
 DEFAULT_LLM_WIKI_ROOT = Path("llm_wiki")
 CONFIDENCE_VALUES = {"low", "medium", "high"}
+READABLE_WIKI_SECTIONS = {"sources", "concepts"}
+WIKI_COLLECTION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+WIKI_PAGE_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*(?:\n|\Z)", re.DOTALL)
 
 
 class LLMWikiRebuildError(RuntimeError):
     """Raised when a collection LLM Wiki rebuild cannot be published."""
+
+
+class LLMWikiArtifactError(RuntimeError):
+    """Raised when generated LLM Wiki artifacts cannot be safely read."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 400,
+    ) -> None:
+        """Create a stable artifact read error."""
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -98,6 +126,252 @@ def _safe_join(base_dir: Path, relative_path: str) -> Path:
     if not path.is_relative_to(base):
         raise LLMWikiRebuildError(f"Unsafe generated path: {relative_path}")
     return path
+
+
+def _wiki_error(
+    code: str,
+    message: str,
+    *,
+    status_code: int = 400,
+) -> LLMWikiArtifactError:
+    return LLMWikiArtifactError(code, message, status_code=status_code)
+
+
+def _collection_dir(collection_id: str, wiki_root: Path | str) -> Path:
+    text = str(collection_id).strip()
+    if (
+        not text
+        or "/" in text
+        or "\\" in text
+        or ".." in text
+        or not WIKI_COLLECTION_ID_RE.fullmatch(text)
+    ):
+        raise _wiki_error(
+            "invalid_wiki_collection",
+            "Invalid wiki collection identifier",
+            status_code=400,
+        )
+
+    collections_dir = Path(wiki_root) / "collections"
+    base = collections_dir.resolve()
+    path = (base / text).resolve()
+    if not path.is_relative_to(base):
+        raise _wiki_error(
+            "invalid_wiki_collection",
+            "Invalid wiki collection identifier",
+            status_code=400,
+        )
+    return path
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise _wiki_error(
+            "invalid_wiki_artifact",
+            "Invalid LLM Wiki manifest",
+            status_code=500,
+        ) from error
+    except OSError as error:
+        raise _wiki_error(
+            "wiki_not_generated",
+            "Wiki not generated yet",
+            status_code=404,
+        ) from error
+    if not isinstance(data, dict):
+        raise _wiki_error(
+            "invalid_wiki_artifact",
+            "Invalid LLM Wiki manifest",
+            status_code=500,
+        )
+    return data
+
+
+def _load_manifest(collection_dir: Path) -> dict[str, Any]:
+    manifest_path = collection_dir / "manifest.json"
+    if not collection_dir.exists() or not manifest_path.exists():
+        raise _wiki_error(
+            "wiki_not_generated",
+            "Wiki not generated yet",
+            status_code=404,
+        )
+    return _read_json(manifest_path)
+
+
+def _manifest_items(
+    manifest: dict[str, Any],
+    key: Literal["sources", "concepts"],
+) -> list[LLMWikiManifestItem]:
+    raw_items = manifest.get(key, [])
+    if not isinstance(raw_items, list):
+        raise _wiki_error(
+            "invalid_wiki_artifact",
+            "Invalid LLM Wiki manifest",
+            status_code=500,
+        )
+
+    expected_type: Literal["source", "concept"] = (
+        "source" if key == "sources" else "concept"
+    )
+    items: list[LLMWikiManifestItem] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise _wiki_error(
+                "invalid_wiki_artifact",
+                "Invalid LLM Wiki manifest",
+                status_code=500,
+            )
+        item_data = {**raw_item, "type": raw_item.get("type") or expected_type}
+        try:
+            item = LLMWikiManifestItem.model_validate(item_data)
+        except ValidationError as error:
+            raise _wiki_error(
+                "invalid_wiki_artifact",
+                "Invalid LLM Wiki manifest",
+                status_code=500,
+            ) from error
+        if not WIKI_PAGE_SLUG_RE.fullmatch(item.slug):
+            raise _wiki_error(
+                "invalid_wiki_artifact",
+                "Invalid LLM Wiki manifest",
+                status_code=500,
+            )
+        if item.path != f"{key}/{item.slug}.md":
+            raise _wiki_error(
+                "invalid_wiki_artifact",
+                "Invalid LLM Wiki manifest",
+                status_code=500,
+            )
+        if item.type != expected_type:
+            raise _wiki_error(
+                "invalid_wiki_artifact",
+                "Invalid LLM Wiki manifest",
+                status_code=500,
+            )
+        items.append(item)
+    return items
+
+
+def _safe_artifact_path(collection_dir: Path, relative_path: str) -> Path:
+    base = collection_dir.resolve()
+    path = (base / relative_path).resolve()
+    if not path.is_relative_to(base):
+        raise _wiki_error(
+            "invalid_wiki_page",
+            "Invalid LLM Wiki page path",
+            status_code=400,
+        )
+    return path
+
+
+def _strip_frontmatter(markdown: str) -> str:
+    return FRONTMATTER_RE.sub("", markdown, count=1).lstrip()
+
+
+def read_llm_wiki_index(
+    collection_id: str,
+    *,
+    wiki_root: Path | str = DEFAULT_LLM_WIKI_ROOT,
+) -> LLMWikiIndexResponse:
+    """Read the public generated index and manifest navigation for a collection."""
+    collection_dir = _collection_dir(collection_id, wiki_root)
+    index_path = collection_dir / "index.md"
+    if not index_path.exists():
+        raise _wiki_error(
+            "wiki_not_generated",
+            "Wiki not generated yet",
+            status_code=404,
+        )
+
+    manifest = _load_manifest(collection_dir)
+    try:
+        index_markdown = index_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise _wiki_error(
+            "invalid_wiki_artifact",
+            "Invalid LLM Wiki index",
+            status_code=500,
+        ) from error
+
+    return LLMWikiIndexResponse(
+        collection_id=str(manifest.get("collection_id") or collection_id),
+        generated_at=(
+            str(manifest["generated_at"]) if manifest.get("generated_at") else None
+        ),
+        index_markdown=index_markdown,
+        sources=_manifest_items(manifest, "sources"),
+        concepts=_manifest_items(manifest, "concepts"),
+    )
+
+
+def read_llm_wiki_page(
+    collection_id: str,
+    section: str,
+    slug: str,
+    *,
+    wiki_root: Path | str = DEFAULT_LLM_WIKI_ROOT,
+) -> LLMWikiPageResponse:
+    """Read one manifest-registered source or concept wiki page."""
+    if section not in READABLE_WIKI_SECTIONS:
+        raise _wiki_error(
+            "invalid_wiki_page",
+            "Invalid LLM Wiki page section",
+            status_code=400,
+        )
+    if not WIKI_PAGE_SLUG_RE.fullmatch(slug):
+        raise _wiki_error(
+            "invalid_wiki_page",
+            "Invalid LLM Wiki page slug",
+            status_code=400,
+        )
+
+    section_key: Literal["sources", "concepts"] = (
+        "sources" if section == "sources" else "concepts"
+    )
+    collection_dir = _collection_dir(collection_id, wiki_root)
+    manifest = _load_manifest(collection_dir)
+    items = _manifest_items(manifest, section_key)
+    expected_path = f"{section}/{slug}.md"
+    item = next(
+        (
+            candidate
+            for candidate in items
+            if candidate.slug == slug and candidate.path == expected_path
+        ),
+        None,
+    )
+    if item is None:
+        raise _wiki_error(
+            "wiki_page_not_found",
+            "Wiki page not found",
+            status_code=404,
+        )
+
+    path = _safe_artifact_path(collection_dir, expected_path)
+    if not path.exists():
+        raise _wiki_error(
+            "wiki_page_not_found",
+            "Wiki page not found",
+            status_code=404,
+        )
+    try:
+        markdown = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise _wiki_error(
+            "invalid_wiki_artifact",
+            "Invalid LLM Wiki page",
+            status_code=500,
+        ) from error
+
+    return LLMWikiPageResponse(
+        collection_id=str(manifest.get("collection_id") or collection_id),
+        section=section_key,
+        slug=slug,
+        title=item.title,
+        path=item.path,
+        markdown=_strip_frontmatter(markdown),
+    )
 
 
 def _clip_text(value: object, limit: int) -> str:
@@ -472,19 +746,9 @@ def _index_markdown(
         "",
         "Generated files are replaceable. Use raw retrieved chunks as evidence.",
         "",
-        "## Sources",
+        "## Concepts",
         "",
     ]
-    if not source_pages:
-        lines.append("_No sources indexed._")
-    for page in source_pages:
-        keywords = ", ".join(page.keywords) or "none"
-        lines.append(
-            f"- [{page.title}]({page.relative_path}) - {page.summary} "
-            f"(keywords: {keywords}; chunks: {page.chunk_count})"
-        )
-
-    lines.extend(["", "## Concepts", ""])
     if not concept_pages:
         lines.append("_No concepts generated._")
     for page in concept_pages:
@@ -492,6 +756,16 @@ def _index_markdown(
         lines.append(
             f"- [{page.title}]({page.relative_path}) - {page.summary} "
             f"(keywords: {keywords}; source refs: {page.reference_count})"
+        )
+
+    lines.extend(["", "## Sources", ""])
+    if not source_pages:
+        lines.append("_No sources indexed._")
+    for page in source_pages:
+        keywords = ", ".join(page.keywords) or "none"
+        lines.append(
+            f"- [{page.title}]({page.relative_path}) - {page.summary} "
+            f"(keywords: {keywords}; chunks: {page.chunk_count})"
         )
     return "\n".join(lines) + "\n"
 
