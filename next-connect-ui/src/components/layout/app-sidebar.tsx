@@ -67,7 +67,7 @@ export function AppSidebar() {
                 <Link href="/">
                   <div className="text-md">🔗</div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium text-lg">LangConnect</span>
+                    <span className="truncate font-medium text-lg">llmwiki</span>
                   </div>
                 </Link>
               </SidebarMenuButton>
