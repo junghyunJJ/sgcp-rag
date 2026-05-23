@@ -1,5 +1,6 @@
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import UploadFile
 from langchain_community.document_loaders.parsers import (
@@ -8,15 +9,17 @@ from langchain_community.document_loaders.parsers import (
 from langchain_community.document_loaders.parsers.generic import MimeTypeBasedParser
 from langchain_community.document_loaders.parsers.msword import MsWordParser
 from langchain_community.document_loaders.parsers.txt import TextParser
-from langconnect.parsers.pymupdf_parser import PyMuPDF4LLMParser
 from langchain_core.documents.base import Blob, Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from langconnect.parsers.pymupdf_parser import PyMuPDF4LLMParser
+from langconnect.services import paper_cards as paper_card_service
 
 LOGGER = logging.getLogger(__name__)
 
 # Document Parser Configuration
 HANDLERS = {
-    "application/pdf": PyMuPDF4LLMParser(),
+    "application/pdf": PyMuPDF4LLMParser(clean_markdown=True),
     "text/plain": TextParser(),
     "text/html": BS4HTMLParser(),
     "text/markdown": TextParser(),  # Markdown files
@@ -35,11 +38,14 @@ MIMETYPE_BASED_PARSER = MimeTypeBasedParser(
 )
 
 
-async def process_document(
+async def process_document(  # noqa: PLR0913
     file: UploadFile,
     metadata: dict | None = None,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
+    collection_id: str | None = None,
+    paper_card_warnings: list[str] | None = None,
+    paper_card_root: str | Path | None = None,
 ) -> list[Document]:
     """Process an uploaded file into LangChain documents."""
     # Generate a unique ID for this file processing instance
@@ -57,11 +63,11 @@ async def process_document(
     # Handle application/octet-stream by checking file extension
     if mime_type == "application/octet-stream" and file.filename:
         filename_lower = file.filename.lower()
-        if filename_lower.endswith(".md") or filename_lower.endswith(".markdown"):
+        if filename_lower.endswith((".md", ".markdown")):
             mime_type = "text/markdown"
         elif filename_lower.endswith(".txt"):
             mime_type = "text/plain"
-        elif filename_lower.endswith(".html") or filename_lower.endswith(".htm"):
+        elif filename_lower.endswith((".html", ".htm")):
             mime_type = "text/html"
         elif filename_lower.endswith(".pdf"):
             mime_type = "application/pdf"
@@ -76,6 +82,47 @@ async def process_document(
 
     docs = MIMETYPE_BASED_PARSER.parse(blob)
     LOGGER.info(f"Parsed {len(docs)} document(s) from file")
+    parser_metadata = dict(docs[0].metadata) if docs and docs[0].metadata else {}
+
+    if mime_type == "application/pdf" and collection_id:
+        try:
+            markdown_text = "\n\n".join(doc.page_content for doc in docs)
+            source_metadata = metadata or {}
+            source = str(
+                source_metadata.get("source")
+                or parser_metadata.get("source")
+                or file.filename
+                or "unknown.pdf"
+            )
+            filename = str(source_metadata.get("filename") or file.filename or source)
+            source_path = source_metadata.get("source_path")
+            parser = str(parser_metadata.get("parser") or "PyMuPDF4LLMParser")
+            parser_version = str(
+                parser_metadata.get("parser_version") or "pymupdf4llm"
+            )
+            card = paper_card_service.build_paper_card_v0(
+                collection_id=str(collection_id),
+                markdown=markdown_text,
+                pdf_bytes=contents,
+                source=source,
+                filename=filename,
+                source_path=str(source_path) if source_path else None,
+                parser=parser,
+                parser_version=parser_version,
+            )
+            paper_card_service.write_paper_card(card, root=paper_card_root)
+        except Exception as exc:
+            warning = f"Paper card generation failed for {file.filename}: {exc}"
+            LOGGER.warning(
+                "paper_card_generation_failed",
+                extra={
+                    "source_filename": file.filename,
+                    "collection_id": collection_id,
+                },
+                exc_info=True,
+            )
+            if paper_card_warnings is not None:
+                paper_card_warnings.append(warning)
 
     # Calculate total text length before chunking
     total_text_length = sum(len(doc.page_content) for doc in docs)

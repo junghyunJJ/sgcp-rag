@@ -63,11 +63,11 @@ export function AppSidebar() {
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
+              <SidebarMenuButton size="lg" className="h-auto min-h-14 py-2 group-data-[collapsible=icon]:min-h-8!" asChild>
                 <Link href="/">
                   <div className="text-md">🔗</div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium text-lg">llmwiki</span>
+                    <span className="whitespace-pre-line font-medium text-base leading-tight">LLM Wiki{"\n"}-RAG</span>
                   </div>
                 </Link>
               </SidebarMenuButton>

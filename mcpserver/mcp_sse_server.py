@@ -248,7 +248,7 @@ async def agentic_search(
     search_limit: int = 5,
     max_rewrites: int = 3,
     filter_json: Optional[str] = None,
-    use_wiki_context: bool = False,
+    use_wiki_context: bool = True,
 ) -> str:
     """Run an agentic RAG search that evaluates, rewrites queries, and validates answers.
 
@@ -262,7 +262,7 @@ async def agentic_search(
         search_limit: Max documents per retrieval. Default 5.
         max_rewrites: Max query rewrite attempts. Default 3.
         filter_json: Optional JSON metadata filter string.
-        use_wiki_context: Use non-authoritative LLM Wiki navigation context during generation.
+        use_wiki_context: Use existing non-authoritative LLM Wiki navigation context during generation.
     """
     search_data = {
         "question": question,

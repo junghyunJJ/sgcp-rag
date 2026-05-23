@@ -174,10 +174,12 @@ mcp/mcp_config.json
 # Generated LLM Wiki artifacts
 llm_wiki/
 
+# benchmarking
+benchmarking/
+
 tests/
 docs/
 reports/
-
 
 *method*
 *methods*

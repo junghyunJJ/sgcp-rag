@@ -7,25 +7,26 @@ import { LanguageProvider } from '@/providers/language-provider'
 import { en } from '@/translations/en'
 import { ko } from '@/translations/ko'
 
-const BRAND = 'llmwiki'
+const DISPLAY_BRAND = 'LLM Wiki\n-RAG'
+const INLINE_BRAND = 'LLM Wiki-RAG'
 
 describe('application brand', () => {
-  it('uses llmwiki in app metadata', () => {
-    expect(metadata.title).toBe(BRAND)
-    expect(metadata.description).toBe(BRAND)
+  it('uses LLM Wiki-RAG in app metadata', () => {
+    expect(metadata.title).toBe(INLINE_BRAND)
+    expect(metadata.description).toBe(INLINE_BRAND)
   })
 
-  it('uses llmwiki in translated landing copy', () => {
-    expect(en.main.title).toContain(BRAND)
-    expect(en.main.subtitle).toContain(BRAND)
-    expect(en.main.about.description).toContain(BRAND)
+  it('uses LLM Wiki-RAG in translated landing copy', () => {
+    expect(en.main.title).toContain(DISPLAY_BRAND)
+    expect(en.main.subtitle).toContain(INLINE_BRAND)
+    expect(en.main.about.description).toContain(INLINE_BRAND)
 
-    expect(ko.main.title).toContain(BRAND)
-    expect(ko.main.subtitle).toContain(BRAND)
-    expect(ko.main.about.description).toContain(BRAND)
+    expect(ko.main.title).toContain(DISPLAY_BRAND)
+    expect(ko.main.subtitle).toContain(INLINE_BRAND)
+    expect(ko.main.about.description).toContain(INLINE_BRAND)
   })
 
-  it('renders llmwiki in the sidebar header', () => {
+  it('renders LLM Wiki-RAG in the sidebar header', () => {
     render(
       <LanguageProvider>
         <SidebarProvider>
@@ -34,7 +35,12 @@ describe('application brand', () => {
       </LanguageProvider>
     )
 
-    expect(screen.getByText(BRAND)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName.toLowerCase() === 'span' && element.textContent === DISPLAY_BRAND
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByText('LangConnect')).not.toBeInTheDocument()
   })
 })

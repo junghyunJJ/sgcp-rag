@@ -6,8 +6,8 @@ import { LanguageProvider } from "@/providers/language-provider"
 import { Toaster as SonnerToaster } from "sonner"
 
 export const metadata: Metadata = {
-  title: "llmwiki",
-  description: "llmwiki",
+  title: "LLM Wiki-RAG",
+  description: "LLM Wiki-RAG",
 }
 
 export default function RootLayout({

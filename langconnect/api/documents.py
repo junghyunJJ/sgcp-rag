@@ -152,6 +152,7 @@ async def documents_create(
     docs_to_index: list[Document] = []
     processed_files_count = 0
     failed_files = []
+    paper_card_warnings: list[str] = []
 
     # Pair files with their corresponding metadata
     for file, metadata in zip(files, metadatas, strict=False):
@@ -162,6 +163,8 @@ async def documents_create(
                 metadata=metadata,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
+                collection_id=str(collection_id),
+                paper_card_warnings=paper_card_warnings,
             )
             if langchain_docs:
                 docs_to_index.extend(langchain_docs)
@@ -228,10 +231,12 @@ async def documents_create(
 
         response_data["llm_wiki"] = wiki_result.model_dump(mode="json")
 
+        warnings: list[str] = []
         if failed_files:
-            response_data["warnings"] = (
-                f"Processing failed for files: {', '.join(failed_files)}"
-            )
+            warnings.append(f"Processing failed for files: {', '.join(failed_files)}")
+        warnings.extend(paper_card_warnings)
+        if warnings:
+            response_data["warnings"] = " | ".join(warnings)
             # Consider if partial success should change the overall status/message
 
         return response_data

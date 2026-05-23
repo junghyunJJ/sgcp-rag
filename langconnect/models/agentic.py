@@ -13,6 +13,15 @@ WikiContextStatus = Literal[
     "invalid_schema",
 ]
 
+WikiPromotionStatus = Literal[
+    "disabled",
+    "not_selected",
+    "no_valid_source_refs",
+    "promoted",
+    "no_matching_source_refs",
+    "fetch_failed",
+]
+
 
 class AgenticSearchQuery(BaseModel):
     """Request body for POST /collections/{id}/agentic-search."""
@@ -35,8 +44,8 @@ class AgenticSearchQuery(BaseModel):
         None, ge=0, le=2, description="LLM temperature override"
     )
     use_wiki_context: bool = Field(
-        default=False,
-        description="Use non-authoritative LLM Wiki navigation context during generation",
+        default=True,
+        description="Use existing non-authoritative LLM Wiki navigation context during generation",
     )
 
 
@@ -65,4 +74,20 @@ class AgenticSearchResult(BaseModel):
     wiki_context_status: WikiContextStatus = Field(
         default="disabled",
         description="Finite status for optional wiki context resolution",
+    )
+    wiki_source_refs: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Structured wiki source refs selected for benchmark observability",
+    )
+    wiki_promotion_status: WikiPromotionStatus = Field(
+        default="disabled",
+        description="Finite status for optional wiki source-ref promotion",
+    )
+    wiki_promoted_document_ids: list[str] = Field(
+        default_factory=list,
+        description="Document IDs promoted from wiki source refs",
+    )
+    retrieved_document_ids: list[str] = Field(
+        default_factory=list,
+        description="Pre-grade retrieved document IDs after wiki promotion merge",
     )

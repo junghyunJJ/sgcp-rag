@@ -44,8 +44,8 @@ For Claude Desktop, use the generated config:
 - `API_BASE_URL`: LangConnect API server URL (default: `http://localhost:8080`)
 - `SSE_PORT`: Port for SSE server (default: `8765`)
 - `OLLAMA_BASE_URL`: Shared fallback Ollama endpoint for local LLMs (default: `http://localhost:5000`)
-- `QUERY_EXPANSION_OLLAMA_BASE_URL`: Query expansion Ollama endpoint; falls back to `OLLAMA_BASE_URL`
-- `AGENT_OLLAMA_BASE_URL`: Agentic RAG Ollama endpoint; falls back to `OLLAMA_BASE_URL`
+- `QUERY_EXPANSION_LLM_BASE_URL`: Query expansion Ollama endpoint; falls back to `OLLAMA_BASE_URL`
+- `AGENT_LLM_BASE_URL`: Agentic RAG Ollama endpoint; falls back to `OLLAMA_BASE_URL`
 - `QUERY_EXPANSION_LLM_PROVIDER`: Query expansion provider: `auto`, `ollama`, or `openai` (default: `auto`)
 - `QUERY_EXPANSION_LLM_MODEL`: Ollama query expansion model (default: `qwen3.5:35b`)
 - `QUERY_EXPANSION_OPENAI_MODEL`: OpenAI fallback model for query expansion (default: `gpt-5.4`)

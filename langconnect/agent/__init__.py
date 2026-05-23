@@ -53,6 +53,8 @@ def _format_agentic_result(
     result: dict[str, Any],
     wiki_result: WikiContextResult,
 ) -> dict[str, Any]:
+    documents = result.get("documents", [])
+    promoted_documents = result.get("wiki_promoted_documents", [])
     return {
         "generation": result.get("generation", ""),
         "relevant_documents": result.get("relevant_documents", []),
@@ -66,6 +68,10 @@ def _format_agentic_result(
             wiki_result.selected_pages,
         ),
         "wiki_context_status": result.get("wiki_context_status") or wiki_result.status,
+        "wiki_source_refs": result.get("wiki_source_refs", []),
+        "wiki_promotion_status": result.get("wiki_promotion_status", "disabled"),
+        "wiki_promoted_document_ids": _document_ids(promoted_documents),
+        "retrieved_document_ids": _document_ids(documents),
     }
 
 
@@ -83,7 +89,26 @@ def _format_agentic_error(
         "no_context_found": False,
         "selected_wiki_pages": wiki_result.selected_pages,
         "wiki_context_status": wiki_result.status,
+        "wiki_source_refs": [],
+        "wiki_promotion_status": "disabled",
+        "wiki_promoted_document_ids": [],
+        "retrieved_document_ids": [],
     }
+
+
+def _document_ids(documents: object) -> list[str]:
+    if not isinstance(documents, list):
+        return []
+
+    ids: list[str] = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        document_id = document.get("id")
+        if document_id is None:
+            continue
+        ids.append(str(document_id))
+    return ids
 
 
 async def _resolve_wiki_promotion(
@@ -230,7 +255,7 @@ async def run_agentic_search(  # noqa: PLR0913
     llm_provider: str | None = None,
     llm_model: str | None = None,
     llm_temperature: float | None = None,
-    use_wiki_context: bool = False,
+    use_wiki_context: bool = True,
 ) -> dict[str, Any]:
     """Run an agentic RAG search with self-correcting retrieval loop.
 
@@ -245,7 +270,7 @@ async def run_agentic_search(  # noqa: PLR0913
         llm_provider: LLM provider override ("auto", "openai", "google", or "ollama").
         llm_model: LLM model name override.
         llm_temperature: LLM temperature override.
-        use_wiki_context: Use non-authoritative LLM Wiki context during generation.
+        use_wiki_context: Use existing non-authoritative LLM Wiki context during generation.
 
     Returns:
         Dict with keys: generation, relevant_documents, steps,

@@ -26,7 +26,6 @@ dependencies = [
     "psycopg[binary]>=3.2.6",
     "pillow>=11.2.1",
     "pdfminer.six>=20250416",
-    "lxml>=5.4.0",
     "unstructured[docx]>=0.17.2",
     "python-docx>=1.1.0",
     "requests>=2.31.0",

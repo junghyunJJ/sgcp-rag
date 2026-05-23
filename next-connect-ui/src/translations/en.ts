@@ -197,8 +197,8 @@ export const en = {
     korean: '한국어'
   },
   main: {
-    title: '🔗 llmwiki',
-    subtitle: 'Welcome to <strong>llmwiki</strong>.',
+    title: '🔗 LLM Wiki\n-RAG',
+    subtitle: 'Welcome to <strong>LLM Wiki-RAG</strong>.',
     description: 'A powerful document management and search system powered by LangChain and PostgreSQL.',
     keyFeatures: '🚀 Key Features',
     keyFeaturesDescription: 'This application provides a comprehensive interface for document management with advanced search capabilities:',
@@ -241,7 +241,7 @@ export const en = {
     },
     about: {
       title: '📌 About This Project',
-      description: '<strong>llmwiki</strong> is an open-source project that combines the following technologies:',
+      description: '<strong>LLM Wiki-RAG</strong> is an open-source project that combines the following technologies:',
       techStack: [
         '<strong>LangChain</strong> - Document processing and embeddings',
         '<strong>PostgreSQL</strong> - Vector storage with pgvector extension',

@@ -14,8 +14,8 @@ DEFAULT_AGENT_OPENAI_MODEL = "gpt-5.4"
 DEFAULT_AGENT_OLLAMA_MODEL = "qwen3.5:122b"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:5000"
 GLOBAL_OLLAMA_BASE_URL_ENV = "OLLAMA_BASE_URL"
-AGENT_OLLAMA_BASE_URL_ENV = "AGENT_OLLAMA_BASE_URL"
-QUERY_EXPANSION_OLLAMA_BASE_URL_ENV = "QUERY_EXPANSION_OLLAMA_BASE_URL"
+AGENT_LLM_BASE_URL_ENV = "AGENT_LLM_BASE_URL"
+QUERY_EXPANSION_LLM_BASE_URL_ENV = "QUERY_EXPANSION_LLM_BASE_URL"
 SUPPORTED_LLM_PROVIDERS = ("openai", "google", "ollama")
 
 
@@ -42,14 +42,14 @@ def get_ollama_base_url(
 
 def get_agent_ollama_base_url(base_url: str | None = None) -> str:
     """Return the Agentic RAG Ollama base URL."""
-    return get_ollama_base_url(base_url, env_var=AGENT_OLLAMA_BASE_URL_ENV)
+    return get_ollama_base_url(base_url, env_var=AGENT_LLM_BASE_URL_ENV)
 
 
 def get_query_expansion_ollama_base_url(base_url: str | None = None) -> str:
     """Return the query expansion Ollama base URL."""
     return get_ollama_base_url(
         base_url,
-        env_var=QUERY_EXPANSION_OLLAMA_BASE_URL_ENV,
+        env_var=QUERY_EXPANSION_LLM_BASE_URL_ENV,
     )
 
 

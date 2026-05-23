@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 
 from langconnect.agent import query_expansion
+from langconnect.services.paper_cards import repo_relative_path, resolve_repo_root
 
 LineListOutputParser = query_expansion.LineListOutputParser
 generate_query_expansions = query_expansion.generate_query_expansions
@@ -590,6 +591,7 @@ async def add_documents_from_files(
     # This is more reliable in MCP stdio context and files are small (< 10MB)
     files_to_upload = []
     metadatas = []
+    repo_root = resolve_repo_root()
 
     for path, mime_type in validated_files:
         try:
@@ -610,6 +612,9 @@ async def add_documents_from_files(
                 "filename": path.name,
                 "mime_type": mime_type,
             }
+            source_path = repo_relative_path(path, repo_root)
+            if source_path:
+                metadata["source_path"] = source_path
             metadatas.append(metadata)
         except Exception as e:
             print(f"[MCP ERROR] Failed to read {path}: {e}", file=sys.stderr, flush=True)
@@ -724,7 +729,7 @@ async def agentic_search(
     search_limit: int = 5,
     max_rewrites: int = 3,
     filter_json: Optional[str] = None,
-    use_wiki_context: bool = False,
+    use_wiki_context: bool = True,
 ) -> str:
     """Run an agentic RAG search that automatically evaluates, rewrites queries, and validates answers.
 
@@ -742,7 +747,7 @@ async def agentic_search(
         max_rewrites: Maximum number of query rewrite attempts. Default is 3.
         filter_json: Optional JSON string with metadata filters.
                     Example: '{"source": "paper.pdf"}'
-        use_wiki_context: Use non-authoritative LLM Wiki navigation context during generation.
+        use_wiki_context: Use existing non-authoritative LLM Wiki navigation context during generation.
 
     Returns:
         str: JSON string with the answer, source documents, execution trace, and any rewrites.
