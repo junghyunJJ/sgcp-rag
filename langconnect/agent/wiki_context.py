@@ -22,6 +22,9 @@ DEFAULT_WIKI_CONTEXT_DIR = Path("llm_wiki/collections")
 WIKI_CONTEXT_DIR_ENV = "LANGCONNECT_WIKI_CONTEXT_DIR"
 MAX_SELECTED_PAGES = 3
 MAX_WIKI_SOURCE_REFS = 8
+WIKI_SEMANTIC_SELECT_ENV = "WIKI_SEMANTIC_SELECT"
+WIKI_SEMANTIC_MIN_SCORE_ENV = "WIKI_SEMANTIC_MIN_SCORE"
+_PAGE_EMBEDDING_CACHE: dict[str, list[list[float]]] = {}
 LOW_SIGNAL_TOKENS = {
     "a",
     "an",
@@ -176,12 +179,78 @@ def _page_tokens(page: dict[str, Any]) -> set[str]:
     return _tokenize(f"{page['title']} {page['summary']} {keywords}")
 
 
+def _page_text(page: dict[str, Any]) -> str:
+    keywords = " ".join(str(keyword) for keyword in page["keywords"])
+    return f"{page['title']} {page['summary']} {keywords}".strip()
+
+
+def _semantic_select_enabled() -> bool:
+    return os.getenv(WIKI_SEMANTIC_SELECT_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _dot(left: list[float], right: list[float]) -> float:
+    return sum(x * y for x, y in zip(left, right))
+
+
+def _page_similarities(
+    pages: list[dict[str, Any]],
+    question: str,
+) -> list[float]:
+    """Cosine similarity of the question to each page (embeddings are L2-normalized)."""
+    from langconnect.config import get_embeddings
+
+    embeddings = get_embeddings()
+    texts = [_page_text(page) for page in pages]
+    cache_key = str(hash(tuple(texts)))
+    page_vectors = _PAGE_EMBEDDING_CACHE.get(cache_key)
+    if page_vectors is None:
+        page_vectors = embeddings.embed_documents(texts)
+        _PAGE_EMBEDDING_CACHE[cache_key] = page_vectors
+    question_vector = embeddings.embed_query(question)
+    return [_dot(question_vector, vector) for vector in page_vectors]
+
+
+def _select_pages_semantic(
+    pages: list[dict[str, Any]],
+    question: str,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not pages:
+        return []
+    similarities = _page_similarities(pages, question)
+    min_score = float(os.getenv(WIKI_SEMANTIC_MIN_SCORE_ENV, "0.5"))
+    scored_pages: list[tuple[float, str, str, dict[str, Any]]] = []
+    for page, score in zip(pages, similarities):
+        if score >= min_score:
+            scored_pages.append(
+                (score, page["title"].casefold(), page["id"].casefold(), page)
+            )
+    scored_pages.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return [
+        {
+            "id": page["id"],
+            "title": page["title"],
+            "source_refs": page["source_refs"],
+            "score": score,
+            "summary": page["summary"],
+        }
+        for score, _, _, page in scored_pages[:limit]
+    ]
+
+
 def _select_pages(
     pages: list[dict[str, Any]],
     question: str,
     *,
     limit: int = MAX_SELECTED_PAGES,
 ) -> list[dict[str, Any]]:
+    if _semantic_select_enabled():
+        return _select_pages_semantic(pages, question, limit=limit)
     question_tokens = _tokenize(question)
     scored_pages: list[tuple[int, str, str, dict[str, Any]]] = []
     for page in pages:
