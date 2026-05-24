@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ from langconnect.models.llm_wiki import (
     LLMWikiPageResponse,
     LLMWikiRebuildResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 COLLECTION_PAGE_SIZE = 100
 SOURCE_MAX_CHUNKS = 12
@@ -558,19 +561,25 @@ async def _generate_source_pages(
 ) -> list[_Page]:
     pages: list[_Page] = []
     used_slugs: set[str] = set()
+    skipped = 0
     for file_id, chunks in groups:
-        prompt, selected_chunks = _source_prompt(file_id, chunks)
-        data = await _invoke_json(llm, prompt)
-        if not isinstance(data, dict):
-            raise LLMWikiRebuildError("LLM source response must be a JSON object")
-        title = _clip_text(data.get("title") or chunks[0].source or file_id, 160)
-        summary = _clip_text(data.get("summary"), SOURCE_SUMMARY_CHAR_LIMIT)
-        if not title or not summary:
-            raise LLMWikiRebuildError("LLM source response missing title or summary")
-        slug = _unique_slug(_slugify(title, fallback="source"), used_slugs)
-        refs = _source_refs(selected_chunks)
-        if not refs:
-            raise LLMWikiRebuildError(f"Source {file_id} has no chunk references")
+        try:
+            prompt, selected_chunks = _source_prompt(file_id, chunks)
+            data = await _invoke_json(llm, prompt)
+            if not isinstance(data, dict):
+                raise LLMWikiRebuildError("LLM source response must be a JSON object")
+            title = _clip_text(data.get("title") or chunks[0].source or file_id, 160)
+            summary = _clip_text(data.get("summary"), SOURCE_SUMMARY_CHAR_LIMIT)
+            if not title or not summary:
+                raise LLMWikiRebuildError("LLM source response missing title or summary")
+            refs = _source_refs(selected_chunks)
+            if not refs:
+                raise LLMWikiRebuildError(f"Source {file_id} has no chunk references")
+            slug = _unique_slug(_slugify(title, fallback="source"), used_slugs)
+        except Exception as error:  # noqa: BLE001
+            skipped += 1
+            logger.warning("Skipping LLM Wiki source %s: %s", file_id, error)
+            continue
         pages.append(
             _Page(
                 id=f"source-{slug}",
@@ -586,6 +595,10 @@ async def _generate_source_pages(
                 file_id=file_id,
                 source=chunks[0].source if chunks else file_id,
             )
+        )
+    if skipped:
+        logger.warning(
+            "LLM Wiki source generation skipped %d/%d sources", skipped, len(groups)
         )
     return pages
 
