@@ -633,10 +633,10 @@ async def _generate_concept_pages(
         summary = _clip_text(concept.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
         if not title or not summary:
             raise LLMWikiRebuildError("LLM concept response missing title or summary")
-        slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
         refs = _valid_concept_refs(concept.get("source_refs"), allowed_refs)
         if not refs:
-            raise LLMWikiRebuildError("LLM concept response has no valid source_refs")
+            continue
+        slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
         pages.append(
             _Page(
                 id=f"concept-{slug}",

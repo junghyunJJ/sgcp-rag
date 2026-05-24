@@ -15,6 +15,8 @@ MIN_SENTENCE_LIKE_SPANS = 2
 MIN_PROSE_LINE_CHARS = 40
 MIN_PROSE_LINE_WORDS = 6
 AUTHOR_LINE_COMMA_LIMIT = 4
+TITLE_METADATA_COMMA_LIMIT = 2
+MIN_TITLE_METADATA_DIGITS = 4
 MIN_AUTHOR_NAME_CHUNKS = 2
 MIN_AUTHOR_COMMAS = 2
 KEYWORD_PIPE_LIMIT = 2
@@ -40,7 +42,18 @@ ABSTRACT_STOP_HEADINGS = {
     "lay summary",
 }
 TITLE_SKIP_HEADINGS = {"abstract", "introduction", "keywords", "keyword"}
-ARTICLE_TYPE_HEADINGS = {"article", "articles", "research article", "resource", "investigation", "editorial"}
+ARTICLE_TYPE_HEADINGS = {
+    "article",
+    "articles",
+    "brief report",
+    "editorial",
+    "investigation",
+    "original article",
+    "research",
+    "research article",
+    "resource",
+    "review article",
+}
 PROSE_STOP_PATTERNS = (
     " department ",
     " university",
@@ -228,12 +241,82 @@ def _heading_text(line: str) -> str | None:
     return text or None
 
 
+def _is_title_skip_line(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+
+    normalized = stripped.lower().strip(" _*").rstrip(":;.")
+    label_headings = (
+        TITLE_SKIP_HEADINGS
+        | ABSTRACT_START_HEADINGS
+        | ABSTRACT_STOP_HEADINGS
+        | ARTICLE_TYPE_HEADINGS
+    )
+    if normalized in label_headings:
+        return True
+    if (
+        _is_keyword_line(stripped)
+        or _is_metadata_or_journal_line(stripped)
+        or _is_author_line(stripped)
+    ):
+        return True
+
+    lower = f" {normalized} "
+    boilerplate_patterns = (
+        " article history ",
+        " advance access publication date ",
+        " available online ",
+        " check for updates ",
+        " citation ",
+        " correspondence ",
+        " corresponding author ",
+        " email:",
+        " full terms & conditions ",
+        " journal homepage ",
+        " published online ",
+        " to cite this article ",
+        " to link to this article ",
+    )
+    boilerplate_prefixes = (
+        "advance access publication date",
+        "article history",
+        "citation",
+        "to cite this article",
+        "to link to this article",
+    )
+    has_boilerplate = any(pattern in lower for pattern in boilerplate_patterns)
+    starts_with_boilerplate = normalized.startswith(boilerplate_prefixes)
+    has_date_status = bool(
+        re.search(r"\b(received|accepted|published|revised)\s*:", normalized)
+    ) or (
+        bool(re.search(r"\b(received|accepted|published|revised)\b", normalized))
+        and bool(re.search(r"\b(19|20)\d{2}\b", normalized))
+    )
+    has_doi_or_url = normalized.startswith(("doi:", "http://", "https://", "www.")) or bool(
+        re.search(r"\bdoi\b|10\.\d{4,9}/", normalized)
+    )
+    has_journal_issue_metadata = bool(re.search(r"\b(19|20)\d{2}\b", stripped)) and (
+        bool(re.search(r"\b\d+\s*\(\d+\)", stripped))
+        or bool(re.search(r"\b(vol(?:ume)?|issue|issn|pages?|pp)\b", normalized))
+        or (
+            stripped.count(",") >= TITLE_METADATA_COMMA_LIMIT
+            and sum(char.isdigit() for char in stripped) >= MIN_TITLE_METADATA_DIGITS
+        )
+    )
+    return (
+        has_boilerplate
+        or starts_with_boilerplate
+        or has_date_status
+        or has_doi_or_url
+        or has_journal_issue_metadata
+    )
+
+
 def _extract_title(markdown: str, source: str) -> tuple[str | None, list[str]]:
     for line in markdown.splitlines():
         text = _clean_line(line)
-        if not text:
-            continue
-        if text.lower().rstrip(":") in TITLE_SKIP_HEADINGS:
+        if _is_title_skip_line(text):
             continue
         if len(text) >= MIN_TITLE_CHARS:
             return text[:TITLE_CHAR_LIMIT], []
@@ -456,7 +539,7 @@ def build_paper_card_v0(  # noqa: PLR0913
     parser: str,
     parser_version: str,
 ) -> PaperCardV0:
-    """Build a v0 abstract-only paper card from parsed PDF markdown."""
+    """Build a v0 title/abstract paper card from parsed PDF markdown."""
     digest = content_hash(pdf_bytes)
     title, title_warnings = _extract_title(markdown, source)
     abstract, abstract_warnings, spans = _extract_abstract(markdown)
