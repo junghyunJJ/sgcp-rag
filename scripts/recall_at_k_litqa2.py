@@ -95,7 +95,7 @@ async def eval_one(
     )
     wiki_result = resolve_wiki_context(collection_id, question, wiki_dir=wiki_dir)
     _, promoted, wiki_status, _ = await _resolve_wiki_promotion(
-        collection_id, wiki_result
+        collection_id, wiki_result, question
     )
     return search_docs, promoted, wiki_status
 
