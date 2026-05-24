@@ -39,8 +39,11 @@ DEFAULT_REPORT = "/tmp/multihop_h1_ab.jsonl"
 
 
 def _contains(answer: str, gold: str) -> bool:
+    # Gold appears in a non-empty answer. (Do NOT also test answer-in-gold: an
+    # empty answer is a substring of every gold, which would score no_context
+    # answers as correct.)
     na, ng = normalize_answer(answer), normalize_answer(gold)
-    return bool(ng) and (ng in na or na in ng)
+    return bool(na) and bool(ng) and ng in na
 
 
 async def run_lane(case: Any, collection_id: str, use_wiki: bool, max_rewrites: int) -> dict:
