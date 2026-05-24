@@ -383,7 +383,7 @@ async def run_agentic_search(  # noqa: PLR0913
             "error": None,
             "no_context_found": False,
             "use_wiki_context": use_wiki_context,
-            "wiki_context": "",
+            "wiki_context": wiki_result.context,
             "selected_wiki_pages": wiki_result.selected_pages,
             "wiki_context_status": wiki_result.status,
             "wiki_source_refs": wiki_source_refs,

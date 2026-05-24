@@ -9,6 +9,7 @@ Five nodes that form the processing pipeline:
 """
 
 import logging
+import os
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -27,6 +28,12 @@ from langconnect.agent.state import AgentState
 from langconnect.database.collections import Collection
 
 logger = logging.getLogger(__name__)
+
+WIKI_CONTEXT_INJECT_ENV = "WIKI_CONTEXT_INJECT"
+
+
+def _wiki_inject_enabled() -> bool:
+    return os.getenv(WIKI_CONTEXT_INJECT_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
 def _merge_wiki_promoted_documents(
@@ -129,7 +136,6 @@ async def generate(
     question = state["question"]
     relevant_docs = state.get("relevant_documents", [])
     context = "\n\n---\n\n".join(doc.get("page_content", "") for doc in relevant_docs)
-    payload = {"question": question, "context": context}
     steps = []
     if state.get("use_wiki_context"):
         selected_count = len(state.get("selected_wiki_pages", []))
@@ -139,6 +145,22 @@ async def generate(
             steps.append(
                 f"wiki_context: {state.get('wiki_context_status', 'disabled')}"
             )
+
+    wiki_context = state.get("wiki_context") or ""
+    if (
+        _wiki_inject_enabled()
+        and state.get("wiki_context_status") == "selected"
+        and wiki_context
+    ):
+        context = (
+            "Background orientation from a non-authoritative LLM Wiki "
+            "(navigation memory only -- do NOT cite it as a source; ground your "
+            "answer in the retrieved context below):\n"
+            f"{wiki_context}\n\n---\n\nRetrieved context:\n{context}"
+        )
+        steps.append("wiki_context: injected into generation prompt")
+
+    payload = {"question": question, "context": context}
 
     prompt = ChatPromptTemplate.from_messages(
         [
