@@ -37,12 +37,15 @@ cells = [
         "**How to run:** execute inside the `langconnect-api` container (langconnect importable, "
         "DB + PubMedBERT embeddings + agent LLM reachable). For example, copy this file in and "
         "launch Jupyter there, or run the equivalent cells via `docker exec`.\n\n"
-        "Example question (`id=0`) is one where summary **injection flipped the answer from wrong "
-        "to right** under the controlled test."
+        "Example question (`id=0`) is one where summary injection helped in the controlled "
+        "aggregate. NOTE: a single agentic run is nondeterministic (~74% answer churn run-to-run), "
+        "so the OFF vs ON outcome here varies per execution — the rigorous injection measure is the "
+        "controlled aggregate (5 fix / 3 break over 39 firing questions), not one run. This notebook "
+        "is for seeing each STEP on real data, not for proving the effect."
     ),
     code(
-        "import os, asyncio\n"
-        "os.environ['PYTHONPATH'] = '/app'\n"
+        "import sys, asyncio\n"
+        "sys.path.insert(0, '/app')  # so langconnect + scripts import (run on an in-CONTAINER kernel)\n"
         "COLLECTION_ID = '28d0e6e0-99f1-4b03-b7ed-ebfdcd7371f1'  # mdaqa-pilot (281 papers)\n"
         "QUESTION_ID = '0'\n"
         "WIKI_DIR = '/app/llm_wiki/collections'\n\n"
@@ -137,7 +140,9 @@ cells = [
     md(
         "## Step 5 — generation: OFF vs ON, on the SAME fixed context\n"
         "To isolate injection from pipeline noise, we fix the graded context (one agentic run) and "
-        "generate twice: without the summary block (A) and with it (B). For `id=0`, B is correct and A is not."
+        "generate twice: without the summary block (A) and with it (B). Whether B differs from A "
+        "varies per run (pipeline nondeterminism); the rigorous measure is the controlled aggregate "
+        "(5 fix / 3 break over 39 firing questions), not this single run."
     ),
     code(
         "res = await run_agentic_search(question=case['question'], collection_id=COLLECTION_ID,\n"
