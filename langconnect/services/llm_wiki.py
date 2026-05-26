@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -16,6 +18,7 @@ from pydantic import ValidationError
 from langconnect.agent.config import get_agent_llm
 from langconnect.agent.wiki_context import _validate_pages
 from langconnect.database.collections import Collection
+from langconnect.services.paper_cards import _extract_abstract
 from langconnect.models.llm_wiki import (
     LLMWikiIndexResponse,
     LLMWikiManifestItem,
@@ -23,12 +26,18 @@ from langconnect.models.llm_wiki import (
     LLMWikiRebuildResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 COLLECTION_PAGE_SIZE = 100
 SOURCE_MAX_CHUNKS = 12
 SOURCE_CHUNK_CHAR_LIMIT = 2000
 SOURCE_INPUT_CHAR_LIMIT = 24000
 SOURCE_SUMMARY_CHAR_LIMIT = 1200
 SOURCE_REF_LIMIT = 5
+MAX_SOURCE_SKIP_RATIO = 0.2
+WIKI_ABSTRACT_SUMMARY_ENV = "WIKI_ABSTRACT_SUMMARY"
+WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
+_ABSTRACT_OVERRIDES: dict[str, str] | None = None
 
 CONCEPT_MAX_PAGES = 10
 CONCEPT_INPUT_SOURCE_LIMIT = 100
@@ -479,7 +488,68 @@ def _bounded_chunk_blocks(chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
     return "\n\n".join(blocks), selected[: len(blocks)]
 
 
+def _abstract_summary_enabled() -> bool:
+    return os.getenv(WIKI_ABSTRACT_SUMMARY_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _load_abstract_overrides() -> dict[str, str]:
+    """Load a {arxiv_id: abstract} map (cached) from WIKI_ABSTRACT_SOURCE_FILE."""
+    global _ABSTRACT_OVERRIDES
+    if _ABSTRACT_OVERRIDES is None:
+        path = os.getenv(WIKI_ABSTRACT_SOURCE_FILE_ENV, "").strip()
+        try:
+            _ABSTRACT_OVERRIDES = (
+                json.loads(Path(path).read_text(encoding="utf-8"))
+                if path and Path(path).exists()
+                else {}
+            )
+        except (OSError, json.JSONDecodeError):
+            _ABSTRACT_OVERRIDES = {}
+    return _ABSTRACT_OVERRIDES
+
+
+def _abstract_source_prompt(
+    file_id: str,
+    chunks: list[_Chunk],
+) -> tuple[str, list[_Chunk]]:
+    """Build the source-page prompt from the paper's abstract only.
+
+    Refs still come from `chunks` (unchanged), so promotion behaviour is
+    identical to full-text mode; only the LLM summary INPUT differs.
+    """
+    source = chunks[0].source if chunks else file_id
+    arxiv_id = ""
+    if chunks:
+        arxiv_id = str(chunks[0].metadata.get("arxiv_id") or chunks[0].source or "")
+    override = _load_abstract_overrides().get(arxiv_id) if arxiv_id else None
+    if override:
+        content = override[: SOURCE_INPUT_CHAR_LIMIT - 500]
+    else:
+        joined = "\n\n".join(chunk.content for chunk in chunks[:SOURCE_MAX_CHUNKS])
+        abstract, _, _ = _extract_abstract(joined)
+        content = (abstract or joined)[: SOURCE_INPUT_CHAR_LIMIT - 500]
+    prompt = f"""Build one source page for an LLM Wiki.
+
+Return one JSON object with keys: title, summary, keywords, confidence.
+The summary must be concise and non-authoritative navigation memory.
+Confidence must be low, medium, or high.
+
+Source file_id: {file_id}
+Source label: {source}
+
+Abstract:
+{content}
+"""
+    return prompt[:SOURCE_INPUT_CHAR_LIMIT], chunks
+
+
 def _source_prompt(file_id: str, chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
+    if _abstract_summary_enabled():
+        return _abstract_source_prompt(file_id, chunks)
     chunk_blocks, selected_chunks = _bounded_chunk_blocks(chunks)
     source = chunks[0].source if chunks else file_id
     prompt = f"""Build one source page for an LLM Wiki.
@@ -501,15 +571,11 @@ def _concept_prompt(source_pages: list[_Page]) -> str:
     entries: list[str] = []
     total = 0
     for page in source_pages[:CONCEPT_INPUT_SOURCE_LIMIT]:
-        refs = ", ".join(
-            f"{ref['file_id']}:{ref['chunk_id']}" for ref in page.source_refs
-        )
         entry = (
             f"- id: {page.id}\n"
             f"  title: {page.title}\n"
             f"  summary: {_clip_text(page.summary, SOURCE_SUMMARY_CHAR_LIMIT)}\n"
             f"  keywords: {', '.join(page.keywords)}\n"
-            f"  refs: {refs}\n"
         )
         if entries and total + len(entry) > CONCEPT_INPUT_CHAR_LIMIT:
             break
@@ -518,7 +584,9 @@ def _concept_prompt(source_pages: list[_Page]) -> str:
 
     return f"""Synthesize up to {CONCEPT_MAX_PAGES} concept pages for an LLM Wiki.
 
-Return JSON as {{"concepts": [{{"title": "...", "summary": "...", "keywords": ["..."], "source_refs": [{{"file_id": "...", "chunk_id": "..."}}], "confidence": "medium"}}]}}.
+Return JSON as {{"concepts": [{{"title": "...", "summary": "...", "keywords": ["..."], "source_ids": ["..."], "confidence": "medium"}}]}}.
+Each entry in source_ids MUST be copied exactly from the `id` values listed below.
+Prefer concepts that synthesize across two or more source pages.
 Concept pages are non-authoritative navigation memory only.
 
 Source pages:
@@ -558,19 +626,25 @@ async def _generate_source_pages(
 ) -> list[_Page]:
     pages: list[_Page] = []
     used_slugs: set[str] = set()
+    skipped = 0
     for file_id, chunks in groups:
-        prompt, selected_chunks = _source_prompt(file_id, chunks)
-        data = await _invoke_json(llm, prompt)
-        if not isinstance(data, dict):
-            raise LLMWikiRebuildError("LLM source response must be a JSON object")
-        title = _clip_text(data.get("title") or chunks[0].source or file_id, 160)
-        summary = _clip_text(data.get("summary"), SOURCE_SUMMARY_CHAR_LIMIT)
-        if not title or not summary:
-            raise LLMWikiRebuildError("LLM source response missing title or summary")
-        slug = _unique_slug(_slugify(title, fallback="source"), used_slugs)
-        refs = _source_refs(selected_chunks)
-        if not refs:
-            raise LLMWikiRebuildError(f"Source {file_id} has no chunk references")
+        try:
+            prompt, selected_chunks = _source_prompt(file_id, chunks)
+            data = await _invoke_json(llm, prompt)
+            if not isinstance(data, dict):
+                raise LLMWikiRebuildError("LLM source response must be a JSON object")
+            title = _clip_text(data.get("title") or chunks[0].source or file_id, 160)
+            summary = _clip_text(data.get("summary"), SOURCE_SUMMARY_CHAR_LIMIT)
+            if not title or not summary:
+                raise LLMWikiRebuildError("LLM source response missing title or summary")
+            refs = _source_refs(selected_chunks)
+            if not refs:
+                raise LLMWikiRebuildError(f"Source {file_id} has no chunk references")
+            slug = _unique_slug(_slugify(title, fallback="source"), used_slugs)
+        except Exception as error:  # noqa: BLE001
+            skipped += 1
+            logger.warning("Skipping LLM Wiki source %s: %s", file_id, error)
+            continue
         pages.append(
             _Page(
                 id=f"source-{slug}",
@@ -586,6 +660,18 @@ async def _generate_source_pages(
                 file_id=file_id,
                 source=chunks[0].source if chunks else file_id,
             )
+        )
+    if skipped:
+        logger.warning(
+            "LLM Wiki source generation skipped %d/%d sources", skipped, len(groups)
+        )
+    # Tolerate a few per-source failures, but abort on mass failure (e.g. an LLM
+    # outage) so _publish_artifacts does not replace a healthy wiki with an
+    # empty/partial one.
+    if groups and (not pages or skipped / len(groups) > MAX_SOURCE_SKIP_RATIO):
+        raise LLMWikiRebuildError(
+            f"Too many source pages failed ({skipped}/{len(groups)} skipped); "
+            "aborting rebuild to preserve the previous wiki."
         )
     return pages
 
@@ -608,48 +694,164 @@ def _valid_concept_refs(
     return valid_refs
 
 
+def _concept_refs_from_source_ids(
+    source_ids: object,
+    pages_by_id: dict[str, _Page],
+) -> list[dict[str, str]]:
+    """Derive concept source_refs from cited source page ids (one ref per page).
+
+    The LLM only has to copy the short, semantic page `id` values (which it does
+    reliably), and we map each cited page to one of its real chunk refs. This
+    avoids asking the model to echo long file_id:chunk_id UUID pairs verbatim.
+    """
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    if not isinstance(source_ids, list):
+        return refs
+    for raw_id in source_ids:
+        page = pages_by_id.get(str(raw_id).strip())
+        if page is None:
+            continue
+        for ref in page.source_refs:
+            key = (ref["file_id"], ref["chunk_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append({"file_id": ref["file_id"], "chunk_id": ref["chunk_id"]})
+            break
+        if len(refs) >= SOURCE_REF_LIMIT:
+            break
+    return refs
+
+
+MIN_CONCEPT_CLUSTER_SIZE = 2
+MAX_CONCEPT_CLUSTER_SIZE = 25
+CONCEPT_MAX_CLUSTERS = 200
+CONCEPT_TAU_GRID = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70)
+
+
+def _cluster_text(page: _Page) -> str:
+    keywords = " ".join(str(keyword) for keyword in page.keywords)
+    return f"{page.title} {page.summary} {keywords}".strip()
+
+
+def _refs_from_cluster(members: list[_Page]) -> list[dict[str, str]]:
+    """One real chunk ref per cluster member (bounded), for multi-doc promotion."""
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for page in members:
+        for ref in page.source_refs:
+            key = (ref["file_id"], ref["chunk_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append({"file_id": ref["file_id"], "chunk_id": ref["chunk_id"]})
+            break
+        if len(refs) >= SOURCE_REF_LIMIT:
+            break
+    return refs
+
+
+def _select_concept_clusters(source_pages: list[_Page]) -> list[list[_Page]]:
+    """Cluster source pages by cosine similarity at an adaptively chosen threshold.
+
+    Sweeps the threshold and keeps the one maximising coverage by valid-sized
+    clusters (size in [MIN, MAX]); ties prefer the lower threshold. This adapts to
+    each corpus's similarity scale instead of hardcoding a value (news vs papers
+    cluster at very different thresholds) and drops any oversized "blob" cluster.
+    The number of concepts is therefore content-driven, not a fixed count.
+    """
+    import torch
+    from sentence_transformers.util import community_detection
+
+    from langconnect.config import get_embeddings
+
+    texts = [_cluster_text(page) for page in source_pages]
+    embeddings = torch.tensor(get_embeddings().embed_documents(texts))
+
+    best_tau: float | None = None
+    best_clusters: list[list[int]] = []
+    best_key: tuple[int, float] = (-1, 0.0)
+    for tau in CONCEPT_TAU_GRID:
+        clusters = community_detection(
+            embeddings,
+            threshold=tau,
+            min_community_size=MIN_CONCEPT_CLUSTER_SIZE,
+        )
+        valid = [c for c in clusters if len(c) <= MAX_CONCEPT_CLUSTER_SIZE]
+        key = (sum(len(c) for c in valid), -tau)
+        if key > best_key:
+            best_key, best_tau, best_clusters = key, tau, valid
+
+    logger.info(
+        "LLM Wiki concept clustering: tau=%.2f clusters=%d covered=%d/%d",
+        best_tau or 0.0,
+        len(best_clusters),
+        best_key[0],
+        len(source_pages),
+    )
+    return [[source_pages[i] for i in cluster] for cluster in best_clusters]
+
+
+def _cluster_concept_prompt(members: list[_Page]) -> str:
+    entries = "".join(
+        f"- {page.title}: {_clip_text(page.summary, SOURCE_SUMMARY_CHAR_LIMIT)}\n"
+        for page in members
+    )
+    return f"""Synthesize ONE concept page unifying these related source pages.
+
+Return one JSON object with keys: title, summary, keywords, confidence.
+The summary is non-authoritative navigation memory describing the shared theme
+across these sources. Confidence must be low, medium, or high.
+
+Source pages:
+{entries}
+"""[:CONCEPT_INPUT_CHAR_LIMIT]
+
+
 async def _generate_concept_pages(
     llm: object,
     source_pages: list[_Page],
 ) -> list[_Page]:
     if not source_pages:
         return []
-    data = await _invoke_json(llm, _concept_prompt(source_pages))
-    concepts = data.get("concepts") if isinstance(data, dict) else data
-    if not isinstance(concepts, list):
-        raise LLMWikiRebuildError("LLM concept response must contain a concepts list")
-
-    allowed_refs = {
-        (ref["file_id"], ref["chunk_id"])
-        for page in source_pages
-        for ref in page.source_refs
-    }
+    clusters = _select_concept_clusters(source_pages)
     pages: list[_Page] = []
     used_slugs: set[str] = set()
-    for concept in concepts[:CONCEPT_MAX_PAGES]:
-        if not isinstance(concept, dict):
-            raise LLMWikiRebuildError("LLM concept item must be an object")
-        title = _clip_text(concept.get("title"), 160)
-        summary = _clip_text(concept.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
-        if not title or not summary:
-            raise LLMWikiRebuildError("LLM concept response missing title or summary")
-        refs = _valid_concept_refs(concept.get("source_refs"), allowed_refs)
+    skipped = 0
+    for members in clusters[:CONCEPT_MAX_CLUSTERS]:
+        refs = _refs_from_cluster(members)
         if not refs:
+            skipped += 1
             continue
-        slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
+        try:
+            data = await _invoke_json(llm, _cluster_concept_prompt(members))
+            if not isinstance(data, dict):
+                raise LLMWikiRebuildError("LLM concept response must be a JSON object")
+            title = _clip_text(data.get("title"), 160)
+            summary = _clip_text(data.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
+            if not title or not summary:
+                raise LLMWikiRebuildError("LLM concept response missing title or summary")
+            slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
+        except Exception as error:  # noqa: BLE001
+            skipped += 1
+            logger.warning("Skipping LLM Wiki concept: %s", error)
+            continue
         pages.append(
             _Page(
                 id=f"concept-{slug}",
                 title=title,
                 page_type="concept",
                 summary=summary,
-                keywords=_coerce_keywords(concept.get("keywords")),
+                keywords=_coerce_keywords(data.get("keywords")),
                 source_refs=refs,
-                confidence=_coerce_confidence(concept.get("confidence")),
+                confidence=_coerce_confidence(data.get("confidence")),
                 relative_path=f"concepts/{slug}.md",
                 reference_count=len(refs),
             )
         )
+    if skipped:
+        logger.warning("LLM Wiki concept generation skipped %d clusters", skipped)
     return pages
 
 

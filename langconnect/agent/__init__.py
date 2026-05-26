@@ -29,6 +29,9 @@ from langconnect.database.collections import Collection
 AGENTIC_SEARCH_TIMEOUT = 120  # seconds
 DEFAULT_AGENT_PROVIDER = "openai"
 AGENT_PROVIDER_AUTO = "auto"
+WIKI_DOC_ROUTING_ENV = "WIKI_DOC_ROUTING"
+WIKI_DOC_ROUTING_MAX_DOCS_ENV = "WIKI_DOC_ROUTING_MAX_DOCS"
+WIKI_DOC_ROUTING_PER_DOC_LIMIT_ENV = "WIKI_DOC_ROUTING_PER_DOC_LIMIT"
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +114,80 @@ def _document_ids(documents: object) -> list[str]:
     return ids
 
 
+def _doc_routing_enabled() -> bool:
+    return os.getenv(WIKI_DOC_ROUTING_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def _routed_file_ids(selected_pages: list[dict[str, Any]]) -> list[str]:
+    max_docs = int(os.getenv(WIKI_DOC_ROUTING_MAX_DOCS_ENV, "3"))
+    file_ids: list[str] = []
+    for page in selected_pages:
+        refs = page.get("source_refs", []) if isinstance(page, dict) else []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            file_id = ref.get("file_id")
+            if isinstance(file_id, str) and file_id.strip() and file_id not in file_ids:
+                file_ids.append(file_id)
+            if len(file_ids) >= max_docs:
+                return file_ids
+    return file_ids
+
+
+async def _resolve_doc_routed_promotion(
+    collection_id: str,
+    selected_pages: list[dict[str, Any]],
+    question: str,
+) -> tuple[list[dict[str, str]], list[dict[str, Any]], str, list[str]]:
+    """Promote chunks by re-searching WITHIN wiki-routed documents (H3/H4)."""
+    file_ids = _routed_file_ids(selected_pages)
+    if not file_ids:
+        return [], [], "no_valid_source_refs", []
+
+    per_doc_limit = int(os.getenv(WIKI_DOC_ROUTING_PER_DOC_LIMIT_ENV, "5"))
+    collection = Collection(collection_id)
+    promoted: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        for file_id in file_ids:
+            docs = await collection.search(
+                question,
+                limit=per_doc_limit,
+                search_type="hybrid",
+                filter={"file_id": file_id},
+            )
+            for doc in docs:
+                doc_id = doc.get("id")
+                if doc_id is not None and str(doc_id) not in seen:
+                    seen.add(str(doc_id))
+                    promoted.append(doc)
+    except Exception as error:
+        logger.warning(
+            "LLM Wiki document routing failed for collection %s: %s",
+            collection_id,
+            error,
+            exc_info=True,
+        )
+        return [], [], "fetch_failed", ["wiki_promotion: fetch_failed"]
+
+    status = "promoted" if promoted else "no_matching_source_refs"
+    return [], promoted, status, []
+
+
 async def _resolve_wiki_promotion(
     collection_id: str,
     wiki_result: WikiContextResult,
+    question: str | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]], str, list[str]]:
     if wiki_result.status != "selected":
         return [], [], "not_selected", []
+
+    if question and _doc_routing_enabled():
+        return await _resolve_doc_routed_promotion(
+            collection_id,
+            wiki_result.selected_pages,
+            question,
+        )
 
     source_refs = extract_wiki_source_refs(wiki_result.selected_pages)
     if not source_refs:
@@ -293,7 +364,7 @@ async def run_agentic_search(  # noqa: PLR0913
                 wiki_promoted_documents,
                 wiki_promotion_status,
                 wiki_promotion_steps,
-            ) = await _resolve_wiki_promotion(collection_id, wiki_result)
+            ) = await _resolve_wiki_promotion(collection_id, wiki_result, question)
 
         initial_state = {
             "question": question,
@@ -312,7 +383,7 @@ async def run_agentic_search(  # noqa: PLR0913
             "error": None,
             "no_context_found": False,
             "use_wiki_context": use_wiki_context,
-            "wiki_context": "",
+            "wiki_context": wiki_result.context,
             "selected_wiki_pages": wiki_result.selected_pages,
             "wiki_context_status": wiki_result.status,
             "wiki_source_refs": wiki_source_refs,
