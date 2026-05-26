@@ -715,47 +715,134 @@ def _concept_refs_from_source_ids(
     return refs
 
 
+MIN_CONCEPT_CLUSTER_SIZE = 2
+MAX_CONCEPT_CLUSTER_SIZE = 25
+CONCEPT_MAX_CLUSTERS = 200
+CONCEPT_TAU_GRID = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70)
+
+
+def _cluster_text(page: _Page) -> str:
+    keywords = " ".join(str(keyword) for keyword in page.keywords)
+    return f"{page.title} {page.summary} {keywords}".strip()
+
+
+def _refs_from_cluster(members: list[_Page]) -> list[dict[str, str]]:
+    """One real chunk ref per cluster member (bounded), for multi-doc promotion."""
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for page in members:
+        for ref in page.source_refs:
+            key = (ref["file_id"], ref["chunk_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append({"file_id": ref["file_id"], "chunk_id": ref["chunk_id"]})
+            break
+        if len(refs) >= SOURCE_REF_LIMIT:
+            break
+    return refs
+
+
+def _select_concept_clusters(source_pages: list[_Page]) -> list[list[_Page]]:
+    """Cluster source pages by cosine similarity at an adaptively chosen threshold.
+
+    Sweeps the threshold and keeps the one maximising coverage by valid-sized
+    clusters (size in [MIN, MAX]); ties prefer the lower threshold. This adapts to
+    each corpus's similarity scale instead of hardcoding a value (news vs papers
+    cluster at very different thresholds) and drops any oversized "blob" cluster.
+    The number of concepts is therefore content-driven, not a fixed count.
+    """
+    import torch
+    from sentence_transformers.util import community_detection
+
+    from langconnect.config import get_embeddings
+
+    texts = [_cluster_text(page) for page in source_pages]
+    embeddings = torch.tensor(get_embeddings().embed_documents(texts))
+
+    best_tau: float | None = None
+    best_clusters: list[list[int]] = []
+    best_key: tuple[int, float] = (-1, 0.0)
+    for tau in CONCEPT_TAU_GRID:
+        clusters = community_detection(
+            embeddings,
+            threshold=tau,
+            min_community_size=MIN_CONCEPT_CLUSTER_SIZE,
+        )
+        valid = [c for c in clusters if len(c) <= MAX_CONCEPT_CLUSTER_SIZE]
+        key = (sum(len(c) for c in valid), -tau)
+        if key > best_key:
+            best_key, best_tau, best_clusters = key, tau, valid
+
+    logger.info(
+        "LLM Wiki concept clustering: tau=%.2f clusters=%d covered=%d/%d",
+        best_tau or 0.0,
+        len(best_clusters),
+        best_key[0],
+        len(source_pages),
+    )
+    return [[source_pages[i] for i in cluster] for cluster in best_clusters]
+
+
+def _cluster_concept_prompt(members: list[_Page]) -> str:
+    entries = "".join(
+        f"- {page.title}: {_clip_text(page.summary, SOURCE_SUMMARY_CHAR_LIMIT)}\n"
+        for page in members
+    )
+    return f"""Synthesize ONE concept page unifying these related source pages.
+
+Return one JSON object with keys: title, summary, keywords, confidence.
+The summary is non-authoritative navigation memory describing the shared theme
+across these sources. Confidence must be low, medium, or high.
+
+Source pages:
+{entries}
+"""[:CONCEPT_INPUT_CHAR_LIMIT]
+
+
 async def _generate_concept_pages(
     llm: object,
     source_pages: list[_Page],
 ) -> list[_Page]:
     if not source_pages:
         return []
-    data = await _invoke_json(llm, _concept_prompt(source_pages))
-    concepts = data.get("concepts") if isinstance(data, dict) else data
-    if not isinstance(concepts, list):
-        raise LLMWikiRebuildError("LLM concept response must contain a concepts list")
-
-    pages_by_id = {page.id: page for page in source_pages}
+    clusters = _select_concept_clusters(source_pages)
     pages: list[_Page] = []
     used_slugs: set[str] = set()
     skipped = 0
-    for concept in concepts[:CONCEPT_MAX_PAGES]:
-        if not isinstance(concept, dict):
+    for members in clusters[:CONCEPT_MAX_CLUSTERS]:
+        refs = _refs_from_cluster(members)
+        if not refs:
             skipped += 1
             continue
-        title = _clip_text(concept.get("title"), 160)
-        summary = _clip_text(concept.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
-        refs = _concept_refs_from_source_ids(concept.get("source_ids"), pages_by_id)
-        if not title or not summary or not refs:
+        try:
+            data = await _invoke_json(llm, _cluster_concept_prompt(members))
+            if not isinstance(data, dict):
+                raise LLMWikiRebuildError("LLM concept response must be a JSON object")
+            title = _clip_text(data.get("title"), 160)
+            summary = _clip_text(data.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
+            if not title or not summary:
+                raise LLMWikiRebuildError("LLM concept response missing title or summary")
+            slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
+        except Exception as error:  # noqa: BLE001
             skipped += 1
+            logger.warning("Skipping LLM Wiki concept: %s", error)
             continue
-        slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
         pages.append(
             _Page(
                 id=f"concept-{slug}",
                 title=title,
                 page_type="concept",
                 summary=summary,
-                keywords=_coerce_keywords(concept.get("keywords")),
+                keywords=_coerce_keywords(data.get("keywords")),
                 source_refs=refs,
-                confidence=_coerce_confidence(concept.get("confidence")),
+                confidence=_coerce_confidence(data.get("confidence")),
                 relative_path=f"concepts/{slug}.md",
                 reference_count=len(refs),
             )
         )
     if skipped:
-        logger.warning("LLM Wiki concept generation skipped %d concepts", skipped)
+        logger.warning("LLM Wiki concept generation skipped %d clusters", skipped)
     return pages
 
 
