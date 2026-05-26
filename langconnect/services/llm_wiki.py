@@ -34,6 +34,7 @@ SOURCE_CHUNK_CHAR_LIMIT = 2000
 SOURCE_INPUT_CHAR_LIMIT = 24000
 SOURCE_SUMMARY_CHAR_LIMIT = 1200
 SOURCE_REF_LIMIT = 5
+MAX_SOURCE_SKIP_RATIO = 0.2
 WIKI_ABSTRACT_SUMMARY_ENV = "WIKI_ABSTRACT_SUMMARY"
 WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
 _ABSTRACT_OVERRIDES: dict[str, str] | None = None
@@ -663,6 +664,14 @@ async def _generate_source_pages(
     if skipped:
         logger.warning(
             "LLM Wiki source generation skipped %d/%d sources", skipped, len(groups)
+        )
+    # Tolerate a few per-source failures, but abort on mass failure (e.g. an LLM
+    # outage) so _publish_artifacts does not replace a healthy wiki with an
+    # empty/partial one.
+    if groups and (not pages or skipped / len(groups) > MAX_SOURCE_SKIP_RATIO):
+        raise LLMWikiRebuildError(
+            f"Too many source pages failed ({skipped}/{len(groups)} skipped); "
+            "aborting rebuild to preserve the previous wiki."
         )
     return pages
 
