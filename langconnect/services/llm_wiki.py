@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from pydantic import ValidationError
 from langconnect.agent.config import get_agent_llm
 from langconnect.agent.wiki_context import _validate_pages
 from langconnect.database.collections import Collection
+from langconnect.services.paper_cards import _extract_abstract
 from langconnect.models.llm_wiki import (
     LLMWikiIndexResponse,
     LLMWikiManifestItem,
@@ -32,6 +34,9 @@ SOURCE_CHUNK_CHAR_LIMIT = 2000
 SOURCE_INPUT_CHAR_LIMIT = 24000
 SOURCE_SUMMARY_CHAR_LIMIT = 1200
 SOURCE_REF_LIMIT = 5
+WIKI_ABSTRACT_SUMMARY_ENV = "WIKI_ABSTRACT_SUMMARY"
+WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
+_ABSTRACT_OVERRIDES: dict[str, str] | None = None
 
 CONCEPT_MAX_PAGES = 10
 CONCEPT_INPUT_SOURCE_LIMIT = 100
@@ -482,7 +487,68 @@ def _bounded_chunk_blocks(chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
     return "\n\n".join(blocks), selected[: len(blocks)]
 
 
+def _abstract_summary_enabled() -> bool:
+    return os.getenv(WIKI_ABSTRACT_SUMMARY_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _load_abstract_overrides() -> dict[str, str]:
+    """Load a {arxiv_id: abstract} map (cached) from WIKI_ABSTRACT_SOURCE_FILE."""
+    global _ABSTRACT_OVERRIDES
+    if _ABSTRACT_OVERRIDES is None:
+        path = os.getenv(WIKI_ABSTRACT_SOURCE_FILE_ENV, "").strip()
+        try:
+            _ABSTRACT_OVERRIDES = (
+                json.loads(Path(path).read_text(encoding="utf-8"))
+                if path and Path(path).exists()
+                else {}
+            )
+        except (OSError, json.JSONDecodeError):
+            _ABSTRACT_OVERRIDES = {}
+    return _ABSTRACT_OVERRIDES
+
+
+def _abstract_source_prompt(
+    file_id: str,
+    chunks: list[_Chunk],
+) -> tuple[str, list[_Chunk]]:
+    """Build the source-page prompt from the paper's abstract only.
+
+    Refs still come from `chunks` (unchanged), so promotion behaviour is
+    identical to full-text mode; only the LLM summary INPUT differs.
+    """
+    source = chunks[0].source if chunks else file_id
+    arxiv_id = ""
+    if chunks:
+        arxiv_id = str(chunks[0].metadata.get("arxiv_id") or chunks[0].source or "")
+    override = _load_abstract_overrides().get(arxiv_id) if arxiv_id else None
+    if override:
+        content = override[: SOURCE_INPUT_CHAR_LIMIT - 500]
+    else:
+        joined = "\n\n".join(chunk.content for chunk in chunks[:SOURCE_MAX_CHUNKS])
+        abstract, _, _ = _extract_abstract(joined)
+        content = (abstract or joined)[: SOURCE_INPUT_CHAR_LIMIT - 500]
+    prompt = f"""Build one source page for an LLM Wiki.
+
+Return one JSON object with keys: title, summary, keywords, confidence.
+The summary must be concise and non-authoritative navigation memory.
+Confidence must be low, medium, or high.
+
+Source file_id: {file_id}
+Source label: {source}
+
+Abstract:
+{content}
+"""
+    return prompt[:SOURCE_INPUT_CHAR_LIMIT], chunks
+
+
 def _source_prompt(file_id: str, chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
+    if _abstract_summary_enabled():
+        return _abstract_source_prompt(file_id, chunks)
     chunk_blocks, selected_chunks = _bounded_chunk_blocks(chunks)
     source = chunks[0].source if chunks else file_id
     prompt = f"""Build one source page for an LLM Wiki.
