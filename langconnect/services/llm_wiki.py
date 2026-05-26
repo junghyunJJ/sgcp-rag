@@ -504,15 +504,11 @@ def _concept_prompt(source_pages: list[_Page]) -> str:
     entries: list[str] = []
     total = 0
     for page in source_pages[:CONCEPT_INPUT_SOURCE_LIMIT]:
-        refs = ", ".join(
-            f"{ref['file_id']}:{ref['chunk_id']}" for ref in page.source_refs
-        )
         entry = (
             f"- id: {page.id}\n"
             f"  title: {page.title}\n"
             f"  summary: {_clip_text(page.summary, SOURCE_SUMMARY_CHAR_LIMIT)}\n"
             f"  keywords: {', '.join(page.keywords)}\n"
-            f"  refs: {refs}\n"
         )
         if entries and total + len(entry) > CONCEPT_INPUT_CHAR_LIMIT:
             break
@@ -521,7 +517,9 @@ def _concept_prompt(source_pages: list[_Page]) -> str:
 
     return f"""Synthesize up to {CONCEPT_MAX_PAGES} concept pages for an LLM Wiki.
 
-Return JSON as {{"concepts": [{{"title": "...", "summary": "...", "keywords": ["..."], "source_refs": [{{"file_id": "...", "chunk_id": "..."}}], "confidence": "medium"}}]}}.
+Return JSON as {{"concepts": [{{"title": "...", "summary": "...", "keywords": ["..."], "source_ids": ["..."], "confidence": "medium"}}]}}.
+Each entry in source_ids MUST be copied exactly from the `id` values listed below.
+Prefer concepts that synthesize across two or more source pages.
 Concept pages are non-authoritative navigation memory only.
 
 Source pages:
@@ -621,6 +619,36 @@ def _valid_concept_refs(
     return valid_refs
 
 
+def _concept_refs_from_source_ids(
+    source_ids: object,
+    pages_by_id: dict[str, _Page],
+) -> list[dict[str, str]]:
+    """Derive concept source_refs from cited source page ids (one ref per page).
+
+    The LLM only has to copy the short, semantic page `id` values (which it does
+    reliably), and we map each cited page to one of its real chunk refs. This
+    avoids asking the model to echo long file_id:chunk_id UUID pairs verbatim.
+    """
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    if not isinstance(source_ids, list):
+        return refs
+    for raw_id in source_ids:
+        page = pages_by_id.get(str(raw_id).strip())
+        if page is None:
+            continue
+        for ref in page.source_refs:
+            key = (ref["file_id"], ref["chunk_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append({"file_id": ref["file_id"], "chunk_id": ref["chunk_id"]})
+            break
+        if len(refs) >= SOURCE_REF_LIMIT:
+            break
+    return refs
+
+
 async def _generate_concept_pages(
     llm: object,
     source_pages: list[_Page],
@@ -632,22 +660,19 @@ async def _generate_concept_pages(
     if not isinstance(concepts, list):
         raise LLMWikiRebuildError("LLM concept response must contain a concepts list")
 
-    allowed_refs = {
-        (ref["file_id"], ref["chunk_id"])
-        for page in source_pages
-        for ref in page.source_refs
-    }
+    pages_by_id = {page.id: page for page in source_pages}
     pages: list[_Page] = []
     used_slugs: set[str] = set()
+    skipped = 0
     for concept in concepts[:CONCEPT_MAX_PAGES]:
         if not isinstance(concept, dict):
-            raise LLMWikiRebuildError("LLM concept item must be an object")
+            skipped += 1
+            continue
         title = _clip_text(concept.get("title"), 160)
         summary = _clip_text(concept.get("summary"), CONCEPT_SUMMARY_CHAR_LIMIT)
-        if not title or not summary:
-            raise LLMWikiRebuildError("LLM concept response missing title or summary")
-        refs = _valid_concept_refs(concept.get("source_refs"), allowed_refs)
-        if not refs:
+        refs = _concept_refs_from_source_ids(concept.get("source_ids"), pages_by_id)
+        if not title or not summary or not refs:
+            skipped += 1
             continue
         slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
         pages.append(
@@ -663,6 +688,8 @@ async def _generate_concept_pages(
                 reference_count=len(refs),
             )
         )
+    if skipped:
+        logger.warning("LLM Wiki concept generation skipped %d concepts", skipped)
     return pages
 
 
