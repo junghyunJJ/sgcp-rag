@@ -87,9 +87,21 @@ def _required_discordant(p_fav: float) -> float | None:
     return (num * num) / ((p_fav - 0.5) ** 2)
 
 
+def _variant_context(variant: str, pages: list[dict[str, Any]], context: str) -> str:
+    if variant == "B_all":
+        return _inject(DEFAULT_HEADER, pages, context)
+    if variant == "B_frame":
+        return _inject(STRONG_HEADER, pages, context)
+    if variant == "B_gated":
+        return _inject(DEFAULT_HEADER, pages[:1], context)
+    raise ValueError(f"unknown variant {variant!r}")
+
+
 async def run(args: argparse.Namespace) -> int:
     """Run the controlled injection-variant pilot."""
-    cases = load_cases(args.limit)
+    cases = load_cases(args.start + args.limit)[args.start :]
+    active = [v for v in VARIANTS if v in {x.strip() for x in args.variants.split(",")}]
+    print(f"cases={len(cases)} start={args.start} variants={active}", flush=True)
     llm = get_agent_llm()
     rows: list[dict[str, Any]] = []
     for index, case in enumerate(cases, start=1):
@@ -106,13 +118,9 @@ async def run(args: argparse.Namespace) -> int:
 
         context = "\n\n---\n\n".join(d.get("page_content", "") for d in relevant)
         pages = wiki.selected_pages  # sorted by descending score
-        prompts = {
-            "A": context,
-            "A2": context,
-            "B_all": _inject(DEFAULT_HEADER, pages, context),
-            "B_frame": _inject(STRONG_HEADER, pages, context),
-            "B_gated": _inject(DEFAULT_HEADER, pages[:1], context),
-        }
+        prompts = {"A": context, "A2": context}
+        for v in active:
+            prompts[v] = _variant_context(v, pages, context)
         verdicts: dict[str, bool] = {}
         for key, ctx in prompts.items():
             ans = await _generate(llm, case["question"], ctx)
@@ -150,7 +158,7 @@ async def run(args: argparse.Namespace) -> int:
     print(f"correct A={sum(r['A'] for r in rows)}/{n}")
     print(f"NOISE baseline A->A2: fixed={nf} broke={nb} (must be ~0 for clean isolation)")
     best = None
-    for v in VARIANTS:
+    for v in active:
         f, b = flips(v)
         disc = f + b
         p = _mcnemar_p(f, b)
@@ -190,6 +198,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report-path", default="/tmp/injection_pilot.jsonl")
     parser.add_argument("--max-rewrites", type=int, default=1)
     parser.add_argument("--limit", type=int, default=80)
+    parser.add_argument("--start", type=int, default=0, help="skip first N cases (fresh slice)")
+    parser.add_argument("--variants", default="B_all,B_frame,B_gated")
     return parser.parse_args()
 
 
