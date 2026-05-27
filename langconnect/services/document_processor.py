@@ -154,8 +154,9 @@ async def process_document(  # noqa: PLR0913
             f"avg: {sum(chunk_sizes) / len(chunk_sizes):.0f}"
         )
 
-    # Add the generated file_id to all split documents' metadata
-    for split_doc in split_docs:
+    # Add source-level identifiers and stable source order to split chunks.
+    chunk_count = len(split_docs)
+    for chunk_index, split_doc in enumerate(split_docs):
         if not hasattr(split_doc, "metadata") or not isinstance(
             split_doc.metadata, dict
         ):
@@ -163,5 +164,7 @@ async def process_document(  # noqa: PLR0913
         split_doc.metadata["file_id"] = str(
             file_id
         )  # Store as string for compatibility
+        split_doc.metadata["chunk_index"] = chunk_index
+        split_doc.metadata["chunk_count"] = chunk_count
 
     return split_docs
