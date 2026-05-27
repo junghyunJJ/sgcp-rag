@@ -2,8 +2,10 @@
 
 Lanes are selected by --lanes (off/on). The wiki variant and promotion mode are
 controlled by ENV at invocation, so the full matrix is run as multiple processes:
-  - wiki variant:  LANGCONNECT_WIKI_CONTEXT_DIR=llm_wiki/collections (full-text)
-                   LANGCONNECT_WIKI_CONTEXT_DIR=/tmp/wiki_abstract/collections (abstract)
+  - wiki variant:  LANGCONNECT_WIKI_CONTEXT_DIR=llm_wiki/collections (full-text,
+                   built with WIKI_ABSTRACT_SUMMARY=false)
+                   LANGCONNECT_WIKI_CONTEXT_DIR=/tmp/wiki_abstract/collections
+                   (abstract, default source-page generation)
   - promotion:     WIKI_DOC_ROUTING=true  (re-search body; needed for long papers)
   - injection:     WIKI_CONTEXT_INJECT=true  (H1 summary injection)
 

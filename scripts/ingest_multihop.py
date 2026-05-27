@@ -1,7 +1,7 @@
 """Ingest MultiHop-RAG news articles (.txt) into a collection.
 
 Reads benchmarking/data/multihoprag/articles_manifest.json and ingests each
-article as full text (chunk_size 1000 / overlap 200), attaching source/title/url
+article as full text (chunk_size 3000 / overlap 200), attaching source/title/url
 metadata so the benchmark's evidence_recall can match retrieved chunks to the
 MultiHopRAG.json evidence_list entries. No LLM Wiki rebuild here.
 
@@ -27,7 +27,7 @@ from langconnect.services.document_processor import process_document
 
 DEFAULT_COLLECTION_NAME = "multihop-rag"
 DEFAULT_MANIFEST = "benchmarking/data/multihoprag/articles_manifest.json"
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 3000
 DEFAULT_CHUNK_OVERLAP = 200
 EVIDENCE_METADATA_KEYS = ("source", "title", "url", "category", "published_at")
 

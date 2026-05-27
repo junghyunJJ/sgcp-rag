@@ -41,7 +41,7 @@ MIMETYPE_BASED_PARSER = MimeTypeBasedParser(
 async def process_document(  # noqa: PLR0913
     file: UploadFile,
     metadata: dict | None = None,
-    chunk_size: int = 1000,
+    chunk_size: int = 3000,
     chunk_overlap: int = 200,
     collection_id: str | None = None,
     paper_card_warnings: list[str] | None = None,

@@ -1,7 +1,7 @@
 """Fetch real abstracts from arXiv for MDA-QA pilot papers.
 
 Writes {base_arxiv_id: abstract} JSON, used as WIKI_ABSTRACT_SOURCE_FILE for the
-abstract-mode wiki build (SPIQA's extracted paragraphs have no clean abstract).
+default abstract-based wiki build (SPIQA's extracted paragraphs have no clean abstract).
 
     docker exec -w /app -e PYTHONPATH=/app langconnect-api \
         python scripts/fetch_arxiv_abstracts.py --num-questions 200 \

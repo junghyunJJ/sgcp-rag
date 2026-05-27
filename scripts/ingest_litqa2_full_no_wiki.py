@@ -16,7 +16,7 @@ from langconnect.services.paper_cards import repo_relative_path, resolve_repo_ro
 DEFAULT_COLLECTION_NAME = "litqa2-full"
 DEFAULT_PDF_DIR = "benchmarking/data/lab-bench/LitQA2/open_access_fulltext/pdf"
 DEFAULT_REPORT_PATH = "reports/litqa2-full-ingest-status.jsonl"
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 3000
 DEFAULT_CHUNK_OVERLAP = 200
 
 

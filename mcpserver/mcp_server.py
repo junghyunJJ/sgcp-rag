@@ -406,7 +406,7 @@ async def list_documents(collection_id: str, limit: int = 20) -> str:
 async def add_documents(
     collection_id: str,
     text: str,
-    chunk_size: int = 1000,
+    chunk_size: int = 3000,
     chunk_overlap: int = 200,
     filename: str = "document.txt",
 ) -> str:
@@ -427,7 +427,7 @@ async def add_documents(
               that you want to make searchable. The text will be automatically chunked into
               smaller segments for optimal retrieval performance. Can be any length, but
               very large texts will be processed in chunks.
-        chunk_size: Maximum number of characters in each chunk (default: 1000).
+        chunk_size: Maximum number of characters in each chunk (default: 3000).
                    Larger chunks preserve more context but may reduce precision.
         chunk_overlap: Number of overlapping characters between chunks (default: 200).
                       Overlap helps maintain context across chunk boundaries.
@@ -489,7 +489,7 @@ async def add_documents(
 async def add_documents_from_files(
     collection_id: str,
     file_paths: list[str] | str,
-    chunk_size: int = 1000,
+    chunk_size: int = 3000,
     chunk_overlap: int = 200,
 ) -> str:
     """Upload files directly from local filesystem without reading content into text first.
@@ -509,7 +509,7 @@ async def add_documents_from_files(
                    Each path will be validated before processing. Can upload multiple files in a
                    single call for batch processing efficiency.
                    Example: ["/path/to/doc1.pdf", "~/doc2.txt"] or "/path/to/single.pdf"
-        chunk_size: Maximum number of characters in each chunk (default: 1000).
+        chunk_size: Maximum number of characters in each chunk (default: 3000).
                    Larger chunks preserve more context but may reduce precision.
         chunk_overlap: Number of overlapping characters between chunks (default: 200).
                       Overlap helps maintain context across chunk boundaries.

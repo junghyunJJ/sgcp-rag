@@ -67,7 +67,7 @@ export function UploadDocumentModal({
     resolver: zodResolver(formSchema),
     defaultValues: {
       collectionId: "",
-      chunkSize: 1000,
+      chunkSize: 3000,
       chunkOverlap: 200,
       metadata: "[]",
     },

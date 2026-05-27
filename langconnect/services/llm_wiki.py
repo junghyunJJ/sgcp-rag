@@ -489,11 +489,8 @@ def _bounded_chunk_blocks(chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
 
 
 def _abstract_summary_enabled() -> bool:
-    return os.getenv(WIKI_ABSTRACT_SUMMARY_ENV, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    value = os.getenv(WIKI_ABSTRACT_SUMMARY_ENV, "").strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
 
 def _load_abstract_overrides() -> dict[str, str]:

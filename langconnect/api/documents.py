@@ -100,7 +100,7 @@ async def documents_create(
     collection_id: UUID,
     files: list[UploadFile] = File(...),
     metadatas_json: str | None = Form(None),
-    chunk_size: int = Form(1000, ge=10, le=10000),
+    chunk_size: int = Form(3000, ge=10, le=10000),
     chunk_overlap: int = Form(200, ge=0, le=5000),
 ):
     """Processes and indexes (adds) new document files with optional metadata.
@@ -109,7 +109,7 @@ async def documents_create(
         collection_id: UUID of the collection to add documents to
         files: List of files to upload
         metadatas_json: JSON string containing metadata for each file
-        chunk_size: Maximum number of characters in each chunk (default: 1000, range: 10-10000)
+        chunk_size: Maximum number of characters in each chunk (default: 3000, range: 10-10000)
         chunk_overlap: Number of overlapping characters between chunks (default: 200, range: 0-5000)
     """
     if chunk_overlap >= chunk_size:
