@@ -18,23 +18,25 @@ from pydantic import ValidationError
 from langconnect.agent.config import get_agent_llm
 from langconnect.agent.wiki_context import _validate_pages
 from langconnect.database.collections import Collection
-from langconnect.services.paper_cards import _extract_abstract
 from langconnect.models.llm_wiki import (
     LLMWikiIndexResponse,
     LLMWikiManifestItem,
     LLMWikiPageResponse,
     LLMWikiRebuildResponse,
 )
+from langconnect.services.paper_cards import _extract_abstract
 
 logger = logging.getLogger(__name__)
 
 COLLECTION_PAGE_SIZE = 100
 SOURCE_MAX_CHUNKS = 12
+SOURCE_SYNOPSIS_MAX_CHUNKS = 4
 SOURCE_CHUNK_CHAR_LIMIT = 2000
 SOURCE_INPUT_CHAR_LIMIT = 24000
 SOURCE_SUMMARY_CHAR_LIMIT = 1200
 SOURCE_REF_LIMIT = 5
 MAX_SOURCE_SKIP_RATIO = 0.2
+CHUNK_ORDER_METADATA_KEYS = ("chunk_index", "chunk_order", "chunk_sequence")
 WIKI_ABSTRACT_SUMMARY_ENV = "WIKI_ABSTRACT_SUMMARY"
 WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
 _ABSTRACT_OVERRIDES: dict[str, str] | None = None
@@ -51,6 +53,24 @@ READABLE_WIKI_SECTIONS = {"sources", "concepts"}
 WIKI_COLLECTION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 WIKI_PAGE_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*(?:\n|\Z)", re.DOTALL)
+SOURCE_LEAD_START_HEADINGS = {
+    "overview",
+    "introduction",
+    "background",
+    "summary",
+}
+SOURCE_LEAD_MIN_CHARS = 40
+SOURCE_LEAD_MIN_WORDS = 6
+SOURCE_LEAD_STOP_HEADINGS = {
+    "methods",
+    "materials and methods",
+    "results",
+    "references",
+    "bibliography",
+    "appendix",
+    "acknowledgements",
+    "acknowledgments",
+}
 
 
 class LLMWikiRebuildError(RuntimeError):
@@ -448,6 +468,33 @@ def _as_chunk(raw: dict[str, Any], fallback_index: int) -> _Chunk:
     )
 
 
+def _metadata_chunk_order(metadata: dict[str, Any]) -> int | None:
+    for key in CHUNK_ORDER_METADATA_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+            return int(value.strip())
+    return None
+
+
+def _ordered_source_chunks(chunks: list[_Chunk]) -> list[_Chunk]:
+    indexed_chunks = list(enumerate(chunks))
+
+    def sort_key(item: tuple[int, _Chunk]) -> tuple[int, int, int]:
+        fallback_index, chunk = item
+        chunk_order = _metadata_chunk_order(chunk.metadata)
+        if chunk_order is None:
+            return (1, fallback_index, 0)
+        return (0, chunk_order, fallback_index)
+
+    return [chunk for _, chunk in sorted(indexed_chunks, key=sort_key)]
+
+
 async def _list_all_chunks(collection_id: str) -> list[_Chunk]:
     collection = Collection(collection_id=collection_id)
     chunks: list[_Chunk] = []
@@ -466,7 +513,7 @@ def _group_chunks_by_source(chunks: list[_Chunk]) -> list[tuple[str, list[_Chunk
     for chunk in chunks:
         grouped.setdefault(chunk.file_id, []).append(chunk)
     return [
-        (file_id, sorted(items, key=lambda item: item.id))
+        (file_id, _ordered_source_chunks(items))
         for file_id, items in sorted(grouped.items(), key=lambda item: item[0])
     ]
 
@@ -509,14 +556,94 @@ def _load_abstract_overrides() -> dict[str, str]:
     return _ABSTRACT_OVERRIDES
 
 
-def _abstract_source_prompt(
+def _source_front_window(chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
+    selected_chunks: list[_Chunk] = []
+    parts: list[str] = []
+    budget = max(1, SOURCE_INPUT_CHAR_LIMIT - 500)
+    per_chunk_limit = min(
+        SOURCE_CHUNK_CHAR_LIMIT,
+        max(1, budget // SOURCE_SYNOPSIS_MAX_CHUNKS),
+    )
+    for chunk in chunks[:SOURCE_SYNOPSIS_MAX_CHUNKS]:
+        content = _clip_text(chunk.content, per_chunk_limit)
+        if not content:
+            continue
+        next_parts = [*parts, content]
+        if parts and len("\n\n".join(next_parts)) > budget:
+            break
+        parts.append(content)
+        selected_chunks.append(chunk)
+    return "\n\n".join(parts), selected_chunks
+
+
+def _source_heading_text(line: str) -> str | None:
+    match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", line)
+    if match is None:
+        return None
+    text = re.sub(r"^\d+(?:\.\d+)*\.?\s+", "", match.group(1))
+    text = re.sub(r"[*_`]+", "", text).strip().rstrip(":").lower()
+    return text or None
+
+
+def _source_clean_line(line: str) -> str:
+    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", line)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[*_`]+", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" -*\t")
+
+
+def _is_source_lead_line(text: str) -> bool:
+    lower = text.lower()
+    if len(text) < SOURCE_LEAD_MIN_CHARS or len(text.split()) < SOURCE_LEAD_MIN_WORDS:
+        return False
+    if any(token in lower for token in ("doi:", "http://", "https://", "email:")):
+        return False
+    return bool(re.search(r"[a-z]", text))
+
+
+def _extract_source_lead_synopsis(text: str) -> str | None:
+    collected: list[str] = []
+    in_lead_section = False
+    for line in text.splitlines():
+        heading = _source_heading_text(line)
+        if heading is not None:
+            if collected:
+                break
+            if heading in SOURCE_LEAD_START_HEADINGS:
+                in_lead_section = True
+            elif heading in SOURCE_LEAD_STOP_HEADINGS:
+                return None
+            continue
+
+        cleaned = _source_clean_line(line)
+        if not cleaned:
+            if collected:
+                break
+            continue
+        if not in_lead_section and not _is_source_lead_line(cleaned):
+            continue
+        if _is_source_lead_line(cleaned):
+            collected.append(cleaned)
+
+    synopsis = " ".join(collected).strip()
+    return synopsis or None
+
+
+def _extract_source_synopsis(front_window: str) -> str:
+    abstract, _, _ = _extract_abstract(front_window)
+    return abstract or _extract_source_lead_synopsis(front_window) or front_window
+
+
+def _source_synopsis_prompt(
     file_id: str,
     chunks: list[_Chunk],
 ) -> tuple[str, list[_Chunk]]:
-    """Build the source-page prompt from the paper's abstract only.
+    """Build the source-page prompt from ordered front-window source synopsis.
 
-    Refs still come from `chunks` (unchanged), so promotion behaviour is
-    identical to full-text mode; only the LLM summary INPUT differs.
+    Refs still come from real chunks, so promotion behaviour remains tied to raw
+    retrieval evidence; only the LLM summary input is narrowed.
     """
     source = chunks[0].source if chunks else file_id
     arxiv_id = ""
@@ -525,10 +652,12 @@ def _abstract_source_prompt(
     override = _load_abstract_overrides().get(arxiv_id) if arxiv_id else None
     if override:
         content = override[: SOURCE_INPUT_CHAR_LIMIT - 500]
+        selected_chunks = chunks
     else:
-        joined = "\n\n".join(chunk.content for chunk in chunks[:SOURCE_MAX_CHUNKS])
-        abstract, _, _ = _extract_abstract(joined)
-        content = (abstract or joined)[: SOURCE_INPUT_CHAR_LIMIT - 500]
+        front_window, selected_chunks = _source_front_window(chunks)
+        content = _extract_source_synopsis(front_window)[
+            : SOURCE_INPUT_CHAR_LIMIT - 500
+        ]
     prompt = f"""Build one source page for an LLM Wiki.
 
 Return one JSON object with keys: title, summary, keywords, confidence.
@@ -538,15 +667,15 @@ Confidence must be low, medium, or high.
 Source file_id: {file_id}
 Source label: {source}
 
-Abstract:
+Source synopsis:
 {content}
 """
-    return prompt[:SOURCE_INPUT_CHAR_LIMIT], chunks
+    return prompt[:SOURCE_INPUT_CHAR_LIMIT], selected_chunks
 
 
 def _source_prompt(file_id: str, chunks: list[_Chunk]) -> tuple[str, list[_Chunk]]:
     if _abstract_summary_enabled():
-        return _abstract_source_prompt(file_id, chunks)
+        return _source_synopsis_prompt(file_id, chunks)
     chunk_blocks, selected_chunks = _bounded_chunk_blocks(chunks)
     source = chunks[0].source if chunks else file_id
     prompt = f"""Build one source page for an LLM Wiki.
@@ -638,7 +767,7 @@ async def _generate_source_pages(
             if not refs:
                 raise LLMWikiRebuildError(f"Source {file_id} has no chunk references")
             slug = _unique_slug(_slugify(title, fallback="source"), used_slugs)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             skipped += 1
             logger.warning("Skipping LLM Wiki source %s: %s", file_id, error)
             continue
@@ -830,7 +959,7 @@ async def _generate_concept_pages(
             if not title or not summary:
                 raise LLMWikiRebuildError("LLM concept response missing title or summary")
             slug = _unique_slug(_slugify(title, fallback="concept"), used_slugs)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             skipped += 1
             logger.warning("Skipping LLM Wiki concept: %s", error)
             continue
