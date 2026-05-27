@@ -17,7 +17,16 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTranslation } from '@/hooks/use-translation'
 import type {
   LLMWikiIndexResponse,
@@ -47,6 +56,7 @@ interface StructuredPageMarkdown {
   summary: string
   keywords: string[]
   references: string[]
+  contributingSources: ContributingSource[]
 }
 
 interface StructuredIndexItem {
@@ -60,6 +70,28 @@ interface StructuredIndexMarkdown {
   generatedAt: string
   notice: string
   itemDetails: Map<string, StructuredIndexItem>
+}
+
+interface SourceReference {
+  fileId: string
+  chunkId: string
+  label: string
+}
+
+interface ContributingSource {
+  title: string
+  path: string
+  detail: string
+  section: LLMWikiSection
+  slug: string
+}
+
+interface ChunkDetail {
+  id: string
+  content?: string | null
+  page_content?: string | null
+  metadata?: Record<string, unknown> | null
+  collection_id?: string | null
 }
 
 async function readPayload(response: Response) {
@@ -78,6 +110,38 @@ function wikiLinkTarget(href?: string): { section: LLMWikiSection; slug: string 
   return { section: match[1] as LLMWikiSection, slug: match[2] }
 }
 
+function parseSourceReference(reference: string): SourceReference | null {
+  const clean = reference.trim()
+  const separatorIndex = clean.indexOf(':')
+  if (separatorIndex <= 0 || separatorIndex === clean.length - 1) {
+    return null
+  }
+  return {
+    fileId: clean.slice(0, separatorIndex),
+    chunkId: clean.slice(separatorIndex + 1),
+    label: clean,
+  }
+}
+
+function parseContributingSource(reference: string): ContributingSource | null {
+  const clean = reference.replace(/^[-*]\s*/, '').trim()
+  const match = clean.match(/^\[([^\]]+)\]\(([^)]+)\)(?:\s+-\s+(.+))?$/)
+  if (!match) {
+    return null
+  }
+  const target = wikiLinkTarget(match[2])
+  if (!target) {
+    return null
+  }
+  return {
+    title: match[1].trim(),
+    path: match[2].trim(),
+    detail: match[3]?.trim() || '',
+    section: target.section,
+    slug: target.slug,
+  }
+}
+
 function readMarkdownSection(markdown: string, heading: string) {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = markdown.match(
@@ -92,8 +156,9 @@ function parseGeneratedPageMarkdown(markdown: string): StructuredPageMarkdown | 
   const summary = readMarkdownSection(normalized, 'Summary')
   const keywordText = readMarkdownSection(normalized, 'Keywords')
   const referenceText = readMarkdownSection(normalized, 'Navigation Source References')
+  const contributingSourceText = readMarkdownSection(normalized, 'Contributing Sources')
 
-  if (!title || !summary || !keywordText || !referenceText) {
+  if (!title || !summary || !keywordText || (!referenceText && !contributingSourceText)) {
     return null
   }
 
@@ -114,7 +179,12 @@ function parseGeneratedPageMarkdown(markdown: string): StructuredPageMarkdown | 
     .map((reference) => reference.replace(/^[-*]\s*/, '').replace(/`/g, '').trim())
     .filter(Boolean)
 
-  return { title, notice, summary, keywords, references }
+  const contributingSources = contributingSourceText
+    .split('\n')
+    .map(parseContributingSource)
+    .filter((source): source is ContributingSource => source !== null)
+
+  return { title, notice, summary, keywords, references, contributingSources }
 }
 
 function parseIndexMarkdown(
@@ -168,6 +238,11 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
   const [errorMessage, setErrorMessage] = useState('')
   const [pageLoading, setPageLoading] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
+  const [chunkDialogOpen, setChunkDialogOpen] = useState(false)
+  const [selectedReference, setSelectedReference] = useState<SourceReference | null>(null)
+  const [selectedChunk, setSelectedChunk] = useState<ChunkDetail | null>(null)
+  const [chunkLoading, setChunkLoading] = useState(false)
+  const [chunkError, setChunkError] = useState('')
 
   const loadCollection = useCallback(async () => {
     try {
@@ -267,6 +342,38 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
     }
   }, [collectionId, loadIndex, t])
 
+  const openChunkReference = useCallback(
+    async (reference: string) => {
+      const parsed = parseSourceReference(reference)
+      if (!parsed) {
+        toast.error('Invalid source reference')
+        return
+      }
+
+      setSelectedReference(parsed)
+      setSelectedChunk(null)
+      setChunkError('')
+      setChunkLoading(true)
+      setChunkDialogOpen(true)
+
+      try {
+        const response = await fetch(
+          `/api/collections/${collectionId}/documents/${encodeURIComponent(parsed.chunkId)}?file_id=${encodeURIComponent(parsed.fileId)}`
+        )
+        const payload = await readPayload(response)
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.message || 'Failed to load chunk')
+        }
+        setSelectedChunk(payload.data as ChunkDetail)
+      } catch (error: any) {
+        setChunkError(error.message || 'Failed to load chunk')
+      } finally {
+        setChunkLoading(false)
+      }
+    },
+    [collectionId]
+  )
+
   const markdownComponents = useMemo<Components>(
     () => ({
       a: ({ href, children }) => {
@@ -314,6 +421,10 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
     }
     return parseIndexMarkdown(index.index_markdown, index.generated_at)
   }, [activePage, index])
+
+  const selectedChunkContent =
+    selectedChunk?.content || selectedChunk?.page_content || ''
+  const selectedChunkMetadata = selectedChunk?.metadata || {}
 
   const renderNavItem = (
     section: LLMWikiSection,
@@ -603,21 +714,62 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
                     </section>
                   )}
 
-                  <section className="space-y-2">
-                    <h2 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">
-                      Navigation Source References
-                    </h2>
-                    <ul className="grid gap-2 sm:grid-cols-2">
-                      {structuredPage.references.map((reference) => (
-                        <li
-                          key={reference}
-                          className="rounded-md border bg-background px-3 py-2 font-mono text-xs text-gray-700 dark:text-gray-200"
-                        >
-                          {reference}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                  {activePage.kind === 'page' &&
+                  activePage.section === 'concepts' &&
+                  structuredPage.contributingSources.length > 0 && (
+                    <section className="space-y-2">
+                      <h2 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">
+                        Contributing Sources
+                      </h2>
+                      <ul className="grid gap-2 sm:grid-cols-2">
+                        {structuredPage.contributingSources.map((source) => (
+                          <li key={source.path}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              aria-label={`Open contributing source ${source.title}`}
+                              className="h-auto min-h-12 w-full justify-start whitespace-normal px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-200"
+                              onClick={() => void loadPage(source.section, source.slug)}
+                            >
+                              <span className="min-w-0">
+                                <span className="block font-medium leading-5">
+                                  {source.title}
+                                </span>
+                                {source.detail && (
+                                  <span className="block truncate text-xs text-gray-500 dark:text-gray-400">
+                                    {source.detail}
+                                  </span>
+                                )}
+                              </span>
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+
+                  {structuredPage.references.length > 0 && (
+                    <section className="space-y-2">
+                      <h2 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">
+                        Navigation Source References
+                      </h2>
+                      <ul className="grid gap-2 sm:grid-cols-2">
+                        {structuredPage.references.map((reference) => (
+                          <li key={reference}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              aria-label={`Open source reference ${reference}`}
+                              className="h-auto min-h-12 w-full justify-start whitespace-normal break-all px-3 py-2 text-left font-mono text-xs text-gray-700 dark:text-gray-200"
+                              onClick={() => void openChunkReference(reference)}
+                            >
+                              {reference}
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
                 </article>
               ) : (
                 <div className="prose prose-sm max-w-none break-words dark:prose-invert">
@@ -633,6 +785,120 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
           </div>
         )}
       </div>
+
+      <Dialog open={chunkDialogOpen} onOpenChange={setChunkDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-[760px]">
+          <DialogHeader className="border-b px-5 py-4">
+            <div className="flex items-start justify-between gap-4 pr-8">
+              <div className="min-w-0 space-y-1">
+                <DialogTitle>Chunk Details</DialogTitle>
+                <DialogDescription className="break-all font-mono text-xs">
+                  {selectedReference?.label || 'Source reference'}
+                </DialogDescription>
+              </div>
+              {selectedChunkContent && (
+                <Badge variant="secondary" className="shrink-0">
+                  {selectedChunkContent.length} chars
+                </Badge>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className="px-5 pb-5">
+            {chunkLoading ? (
+              <div className="space-y-3 py-5">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-52 w-full" />
+              </div>
+            ) : chunkError ? (
+              <div className="mt-5 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                {chunkError}
+              </div>
+            ) : selectedChunk ? (
+              <Tabs defaultValue="content" className="mt-4 w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="content">Content</TabsTrigger>
+                  <TabsTrigger value="metadata">Metadata</TabsTrigger>
+                </TabsList>
+
+                <TabsContent
+                  value="content"
+                  forceMount
+                  className="mt-4 space-y-3 data-[state=inactive]:hidden"
+                >
+                  <ScrollArea className="h-[360px] w-full rounded-md border bg-gray-50 p-4 dark:bg-gray-900/50">
+                    <div className="whitespace-pre-wrap pr-4 text-sm leading-6 text-gray-800 dark:text-gray-100">
+                      {selectedChunkContent}
+                    </div>
+                  </ScrollArea>
+
+                  <div className="rounded-md border bg-gray-50 p-3 dark:bg-gray-900/50">
+                    <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">Document ID:</span>
+                        <code className="rounded border bg-white px-2 py-1 font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                          {selectedChunk.id}
+                        </code>
+                      </div>
+                      {Boolean(selectedChunkMetadata.file_id) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">File ID:</span>
+                          <code className="rounded border bg-white px-2 py-1 font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                            {String(selectedChunkMetadata.file_id)}
+                          </code>
+                        </div>
+                      )}
+                      {Boolean(selectedChunkMetadata.source) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">Source:</span>
+                          <span className="text-gray-700 dark:text-gray-200">
+                            {String(selectedChunkMetadata.source)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent
+                  value="metadata"
+                  forceMount
+                  className="mt-4 data-[state=inactive]:hidden"
+                >
+                  <ScrollArea className="h-[420px] w-full">
+                    <div className="rounded-md border bg-gray-50 p-4 dark:bg-gray-900/50">
+                      <div className="grid grid-cols-[120px_1fr] gap-3">
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                          Document ID:
+                        </span>
+                        <code className="break-all rounded border bg-white px-2 py-1 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                          {selectedChunk.id}
+                        </code>
+                        {Object.entries(selectedChunkMetadata).map(([key, value]) => (
+                          <div key={key} className="contents">
+                            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                              {key}:
+                            </span>
+                            <div className="min-w-0 text-sm text-gray-700 dark:text-gray-200">
+                              {typeof value === 'object' && value !== null ? (
+                                <pre className="overflow-x-auto rounded border bg-white p-2 text-xs dark:bg-gray-800">
+                                  {JSON.stringify(value, null, 2)}
+                                </pre>
+                              ) : (
+                                <span className="break-all">{String(value)}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

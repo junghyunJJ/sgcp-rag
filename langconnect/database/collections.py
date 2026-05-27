@@ -505,15 +505,15 @@ class Collection:
         return docs
 
     async def get(self, document_id: str) -> dict[str, Any]:
-        """Fetch a single chunk by its UUID."""
+        """Fetch a single chunk by its document id within this collection."""
         async with get_db_connection() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT e.uuid, e.document, e.cmetadata
+                SELECT e.id, e.document, e.cmetadata
                   FROM langchain_pg_embedding e
                   JOIN langchain_pg_collection c
                     ON e.collection_id = c.uuid
-                 WHERE e.uuid = $1
+                 WHERE e.id = $1
                    AND c.uuid = $2
                 """,
                 document_id,
@@ -524,9 +524,11 @@ class Collection:
 
         metadata = json.loads(row["cmetadata"]) if row["cmetadata"] else {}
         return {
-            "id": str(row["uuid"]),
+            "id": str(row["id"]),
             "content": row["document"],
+            "page_content": row["document"],
             "metadata": metadata,
+            "collection_id": str(self.collection_id),
         }
 
     async def get_many_by_source_refs(

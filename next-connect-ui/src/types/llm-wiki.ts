@@ -1,5 +1,12 @@
 export type LLMWikiSection = 'sources' | 'concepts'
 
+export interface LLMWikiContributingSource {
+  id: string
+  title: string
+  path: string
+  source?: string | null
+}
+
 export interface LLMWikiManifestItem {
   type: 'source' | 'concept'
   title: string
@@ -10,6 +17,7 @@ export interface LLMWikiManifestItem {
   source?: string | null
   chunk_count?: number | null
   reference_count?: number | null
+  contributing_sources?: LLMWikiContributingSource[] | null
 }
 
 export interface LLMWikiIndexResponse {

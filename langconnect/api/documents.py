@@ -266,6 +266,26 @@ async def documents_list(
     return await collection.list(limit=limit, offset=offset)
 
 
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}",
+    response_model=DocumentResponse,
+)
+async def documents_get(
+    collection_id: UUID,
+    document_id: str,
+    file_id: Annotated[
+        str | None,
+        Query(description="Optional file_id from an LLM Wiki source_ref."),
+    ] = None,
+):
+    """Fetch one document chunk by ID, optionally validating its source file."""
+    collection = Collection(collection_id=str(collection_id))
+    document = await collection.get(document_id)
+    if file_id is not None and (document.get("metadata") or {}).get("file_id") != file_id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
+
+
 @router.delete(
     "/collections/{collection_id}/documents/{document_id}",
     response_model=dict[str, bool],

@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -117,6 +117,7 @@ class _Page:
     chunk_count: int = 0
     file_id: str | None = None
     source: str | None = None
+    contributing_sources: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -735,7 +736,7 @@ def _source_refs(chunks: list[_Chunk]) -> list[dict[str, str]]:
 
 
 def _page_pack_record(page: _Page) -> dict[str, Any]:
-    return {
+    record: dict[str, Any] = {
         "id": page.id,
         "type": page.page_type,
         "title": page.title,
@@ -744,6 +745,20 @@ def _page_pack_record(page: _Page) -> dict[str, Any]:
         "source_refs": page.source_refs,
         "path": page.relative_path,
     }
+    if page.contributing_sources:
+        record["contributing_sources"] = page.contributing_sources
+    return record
+
+
+def _contributing_source_record(page: _Page) -> dict[str, str]:
+    record = {
+        "id": page.id,
+        "title": page.title,
+        "path": page.relative_path,
+    }
+    if page.source:
+        record["source"] = page.source
+    return record
 
 
 async def _generate_source_pages(
@@ -950,6 +965,7 @@ async def _generate_concept_pages(
         if not refs:
             skipped += 1
             continue
+        contributing_sources = [_contributing_source_record(member) for member in members]
         try:
             data = await _invoke_json(llm, _cluster_concept_prompt(members))
             if not isinstance(data, dict):
@@ -971,9 +987,10 @@ async def _generate_concept_pages(
                 summary=summary,
                 keywords=_coerce_keywords(data.get("keywords")),
                 source_refs=refs,
+                contributing_sources=contributing_sources,
                 confidence=_coerce_confidence(data.get("confidence")),
                 relative_path=f"concepts/{slug}.md",
-                reference_count=len(refs),
+                reference_count=len(contributing_sources),
             )
         )
     if skipped:
@@ -1002,6 +1019,18 @@ def _frontmatter(page: _Page, generated_at: str) -> str:
                 f"    chunk_id: {_yaml_string(ref['chunk_id'])}",
             ]
         )
+    if page.contributing_sources:
+        lines.append("contributing_sources:")
+        for source in page.contributing_sources:
+            lines.extend(
+                [
+                    f"  - id: {_yaml_string(source['id'])}",
+                    f"    title: {_yaml_string(source['title'])}",
+                    f"    path: {_yaml_string(source['path'])}",
+                ]
+            )
+            if source.get("source"):
+                lines.append(f"    source: {_yaml_string(source['source'])}")
     lines.extend(
         [
             f"generated_at: {_yaml_string(generated_at)}",
@@ -1014,9 +1043,28 @@ def _frontmatter(page: _Page, generated_at: str) -> str:
 
 
 def _render_page(page: _Page, generated_at: str) -> str:
-    refs = "\n".join(
-        f"- `{ref['file_id']}:{ref['chunk_id']}`" for ref in page.source_refs
-    )
+    if page.page_type == "concept" and page.contributing_sources:
+        contributing_refs = "\n".join(
+            (
+                f"- [{source['title']}]({source['path']})"
+                + (f" - {source['source']}" if source.get("source") else "")
+            )
+            for source in page.contributing_sources
+        )
+        chunk_refs = "\n".join(
+            f"- `{ref['file_id']}:{ref['chunk_id']}`" for ref in page.source_refs
+        )
+        reference_sections = f"""## Contributing Sources
+{contributing_refs}
+
+## Navigation Source References
+{chunk_refs}"""
+    else:
+        chunk_refs = "\n".join(
+            f"- `{ref['file_id']}:{ref['chunk_id']}`" for ref in page.source_refs
+        )
+        reference_sections = f"""## Navigation Source References
+{chunk_refs}"""
     keywords = ", ".join(page.keywords) or "none"
     return f"""{_frontmatter(page, generated_at)}
 
@@ -1030,8 +1078,7 @@ def _render_page(page: _Page, generated_at: str) -> str:
 ## Keywords
 {keywords}
 
-## Navigation Source References
-{refs}
+{reference_sections}
 """
 
 
@@ -1049,6 +1096,7 @@ Required frontmatter fields for generated source/concept pages:
 - `summary`: string
 - `keywords`: list of strings
 - `source_refs`: list of `file_id` and `chunk_id` pairs
+- `contributing_sources`: concept-only list of source page links, when available
 - `generated_at`: ISO timestamp string
 - `updated_at`: ISO timestamp string
 - `confidence`: `low`, `medium`, or `high`
@@ -1056,7 +1104,7 @@ Required frontmatter fields for generated source/concept pages:
 Runtime pack shape:
 
 ```json
-{{"collection_id": "...", "pages": [{{"id": "...", "title": "...", "summary": "...", "keywords": [], "source_refs": []}}]}}
+{{"collection_id": "...", "pages": [{{"id": "...", "title": "...", "summary": "...", "keywords": [], "source_refs": [], "contributing_sources": []}}]}}
 ```
 """
 
@@ -1083,7 +1131,7 @@ def _index_markdown(
         keywords = ", ".join(page.keywords) or "none"
         lines.append(
             f"- [{page.title}]({page.relative_path}) - {page.summary} "
-            f"(keywords: {keywords}; source refs: {page.reference_count})"
+            f"(keywords: {keywords}; sources: {page.reference_count})"
         )
 
     lines.extend(["", "## Sources", ""])
@@ -1143,6 +1191,7 @@ def _manifest(bundle: _ArtifactBundle) -> dict[str, Any]:
                 "slug": Path(page.relative_path).stem,
                 "id": page.id,
                 "reference_count": page.reference_count,
+                "contributing_sources": page.contributing_sources,
             }
             for page in bundle.concept_pages
         ],

@@ -257,7 +257,7 @@ describe('LLM Wiki viewer', () => {
               '',
               '## Concepts',
               '',
-              '- [Concept One](concepts/concept-one.md) - Concept summary text. (keywords: alpha, beta; source refs: 3)',
+              '- [Concept One](concepts/concept-one.md) - Concept summary text. (keywords: alpha, beta; sources: 3)',
               '',
               '## Sources',
               '',
@@ -296,11 +296,11 @@ describe('LLM Wiki viewer', () => {
     expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
     expect(screen.getByText('Concept summary text.')).toBeInTheDocument()
     expect(screen.getByText('Source summary text.')).toBeInTheDocument()
-    expect(screen.getByText('source refs: 3')).toBeInTheDocument()
+    expect(screen.getByText('sources: 3')).toBeInTheDocument()
     expect(screen.getByText('chunks: 2')).toBeInTheDocument()
   })
 
-  it('renders concept markdown as structured summary, keyword chips, and source references', async () => {
+  it('renders concept markdown with contributing sources and promoted chunk references', async () => {
     ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
       const url = String(input)
       if (url === `/api/collections/${COLLECTION_ID}`) {
@@ -349,9 +349,54 @@ describe('LLM Wiki viewer', () => {
               '## Keywords',
               'alpha, beta',
               '',
+              '## Contributing Sources',
+              '- [Source One](sources/source-one.md) - source-one.pdf',
+              '- [Source Two](sources/source-two.md) - source-two.pdf',
+              '',
               '## Navigation Source References',
               '- `file-1:chunk-1`',
               '- `file-2:chunk-2`',
+            ].join('\n'),
+          },
+        })
+      }
+      if (url === `/api/collections/${COLLECTION_ID}/documents/chunk-1?file_id=file-1`) {
+        return jsonResponse({
+          success: true,
+          data: {
+            id: 'chunk-1',
+            content: 'Promoted concept chunk body.',
+            metadata: {
+              file_id: 'file-1',
+              source: 'concept-paper.pdf',
+              chunk_index: 1,
+            },
+            collection_id: COLLECTION_ID,
+          },
+        })
+      }
+      if (url === `/api/collections/${COLLECTION_ID}/llm-wiki/pages/sources/source-one`) {
+        return jsonResponse({
+          success: true,
+          data: {
+            collection_id: COLLECTION_ID,
+            section: 'sources',
+            slug: 'source-one',
+            title: 'Source One',
+            path: 'sources/source-one.md',
+            markdown: [
+              '# Source One',
+              '',
+              '> Generated LLM Wiki navigation memory. This page is replaceable on full rebuild and is not authoritative evidence.',
+              '',
+              '## Summary',
+              'Source summary text.',
+              '',
+              '## Keywords',
+              'gamma',
+              '',
+              '## Navigation Source References',
+              '- `file-3:chunk-3`',
             ].join('\n'),
           },
         })
@@ -368,9 +413,32 @@ describe('LLM Wiki viewer', () => {
     expect(screen.getByText('Concept summary text.')).toBeInTheDocument()
     expect(screen.getByText('alpha')).toBeInTheDocument()
     expect(screen.getByText('beta')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Contributing Sources' })).toBeInTheDocument()
+    expect(screen.getByText('Source One')).toBeInTheDocument()
+    expect(screen.getByText('source-one.pdf')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Navigation Source References' })).toBeInTheDocument()
     expect(screen.getByText('file-1:chunk-1')).toBeInTheDocument()
-    expect(screen.getByText('file-2:chunk-2')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Open source reference file-1:chunk-1',
+      })
+    )
+
+    expect(await screen.findByText('Promoted concept chunk body.')).toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledWith(
+      `/api/collections/${COLLECTION_ID}/documents/chunk-1?file_id=file-1`
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open contributing source Source One' })
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Source One' })).toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledWith(
+      `/api/collections/${COLLECTION_ID}/llm-wiki/pages/sources/source-one`
+    )
   })
 
   it('renders source markdown as structured summary, keyword chips, and source references', async () => {
@@ -444,5 +512,102 @@ describe('LLM Wiki viewer', () => {
     expect(screen.getByRole('heading', { name: 'Navigation Source References' })).toBeInTheDocument()
     expect(screen.getByText('file-3:chunk-3')).toBeInTheDocument()
     expect(screen.getByText('file-4:chunk-4')).toBeInTheDocument()
+  })
+
+  it('opens raw chunk content and metadata from a navigation source reference', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `/api/collections/${COLLECTION_ID}`) {
+        return jsonResponse({
+          success: true,
+          data: { uuid: COLLECTION_ID, name: 'Alpha Collection', metadata: {} },
+        })
+      }
+      if (url === `/api/collections/${COLLECTION_ID}/llm-wiki`) {
+        return jsonResponse({
+          success: true,
+          data: {
+            collection_id: COLLECTION_ID,
+            status: 'available',
+            generated_at: '2026-05-19T00:00:00+00:00',
+            index_markdown: '# Generated Index',
+            sources: [
+              {
+                type: 'source',
+                title: 'Source One',
+                path: 'sources/source-one.md',
+                slug: 'source-one',
+              },
+            ],
+            concepts: [],
+          },
+        })
+      }
+      if (url === `/api/collections/${COLLECTION_ID}/llm-wiki/pages/sources/source-one`) {
+        return jsonResponse({
+          success: true,
+          data: {
+            collection_id: COLLECTION_ID,
+            section: 'sources',
+            slug: 'source-one',
+            title: 'Source One',
+            path: 'sources/source-one.md',
+            markdown: [
+              '# Source One',
+              '',
+              '> Generated LLM Wiki navigation memory. This page is replaceable on full rebuild and is not authoritative evidence.',
+              '',
+              '## Summary',
+              'Source summary text.',
+              '',
+              '## Keywords',
+              'gamma',
+              '',
+              '## Navigation Source References',
+              '- `file-3:chunk-3`',
+            ].join('\n'),
+          },
+        })
+      }
+      if (url === `/api/collections/${COLLECTION_ID}/documents/chunk-3?file_id=file-3`) {
+        return jsonResponse({
+          success: true,
+          data: {
+            id: 'chunk-3',
+            content: 'Raw chunk body text.',
+            metadata: {
+              file_id: 'file-3',
+              source: 'paper.pdf',
+              chunk_index: 3,
+            },
+            collection_id: COLLECTION_ID,
+          },
+        })
+      }
+      throw new Error(`Unexpected fetch ${url}`)
+    })
+
+    renderWithLanguage(<LLMWikiViewer collectionId={COLLECTION_ID} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Source One' }))
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Open source reference file-3:chunk-3',
+      })
+    )
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Chunk Details' })).toBeInTheDocument()
+    expect(await screen.findByText('Raw chunk body text.')).toBeInTheDocument()
+    expect(screen.getAllByText('chunk-3').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('paper.pdf').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Metadata' }))
+
+    expect(await screen.findByText('chunk_index:')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledWith(
+      `/api/collections/${COLLECTION_ID}/documents/chunk-3?file_id=file-3`
+    )
   })
 })

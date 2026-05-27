@@ -5,6 +5,15 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class LLMWikiContributingSource(BaseModel):
+    """Source page that contributed to a generated concept page."""
+
+    id: str
+    title: str
+    path: str
+    source: str | None = None
+
+
 class LLMWikiManifestItem(BaseModel):
     """Public manifest metadata for a generated wiki page."""
 
@@ -17,6 +26,7 @@ class LLMWikiManifestItem(BaseModel):
     source: str | None = None
     chunk_count: int | None = None
     reference_count: int | None = None
+    contributing_sources: list[LLMWikiContributingSource] | None = None
 
 
 class LLMWikiIndexResponse(BaseModel):
