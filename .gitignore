@@ -176,8 +176,19 @@ llm_wiki/
 
 # benchmarking
 benchmarking/
+!benchmarking/
+benchmarking/*
+!benchmarking/scripts/
+benchmarking/scripts/*
+!benchmarking/scripts/run_multihop_promotion_full.py
+!benchmarking/scripts/run_multihop_promotion_full_docker.sh
 
 tests/
+!tests/
+tests/*
+!tests/unit_tests/
+tests/unit_tests/*
+!tests/unit_tests/test_multihop_promotion_full_runner.py
 docs/
 reports/
 worktrees/
