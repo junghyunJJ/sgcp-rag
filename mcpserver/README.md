@@ -1,6 +1,6 @@
-# LangConnect MCP Servers
+# SGCP-RAG MCP Servers
 
-This directory contains Model Context Protocol (MCP) server implementations for LangConnect.
+This directory contains Model Context Protocol (MCP) server implementations for SGCP-RAG.
 
 ## Servers
 
@@ -41,7 +41,7 @@ For Claude Desktop, use the generated config:
 
 ### Environment Variables
 
-- `API_BASE_URL`: LangConnect API server URL (default: `http://localhost:8080`)
+- `API_BASE_URL`: SGCP-RAG API server URL (default: `http://localhost:8080`)
 - `SSE_PORT`: Port for SSE server (default: `8765`)
 - `OLLAMA_BASE_URL`: Shared fallback Ollama endpoint for local LLMs (default: `http://localhost:5000`)
 - `QUERY_EXPANSION_LLM_BASE_URL`: Query expansion Ollama endpoint; falls back to `OLLAMA_BASE_URL`

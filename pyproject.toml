@@ -1,7 +1,7 @@
 [project]
 name = "langconnect_MCP"
 version = "0.0.1"
-description = "LangConnect: GUI interface for managing knowledge bases and connected to RAG service"
+description = "SGCP-RAG: GUI interface for managing knowledge bases and connected RAG service"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,10 +1,10 @@
 # Authentication Architecture Documentation
 
-This document provides comprehensive guidance for the authentication implementation in LangConnect Client using NextAuth.js with Supabase.
+This document provides comprehensive guidance for the authentication implementation in SGCP-RAG using NextAuth.js with Supabase.
 
 ## Overview
 
-LangConnect Client uses NextAuth.js with JWT strategy for authentication, integrated with Supabase as the authentication provider. The system implements automatic token refresh to maintain user sessions seamlessly.
+SGCP-RAG uses NextAuth.js with JWT strategy for authentication, integrated with Supabase as the authentication provider. The system implements automatic token refresh to maintain user sessions seamlessly.
 
 ## Architecture
 

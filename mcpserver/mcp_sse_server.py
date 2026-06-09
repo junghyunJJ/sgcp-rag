@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LangConnect MCP Server using FastMCP (SSE transport)"""
+"""SGCP-RAG MCP Server using FastMCP (SSE transport)"""
 
 import json
 import os
@@ -26,7 +26,7 @@ SSE_PORT = int(os.getenv("SSE_PORT", "8765"))
 
 
 # Create FastMCP server
-mcp = FastMCP(name="LangConnect")
+mcp = FastMCP(name="SGCP-RAG")
 
 
 # HTTP client
@@ -362,7 +362,7 @@ async def get_health_status() -> str:
 
 
 if __name__ == "__main__":
-    print("LangConnect MCP SSE Server")
+    print("SGCP-RAG MCP SSE Server")
     print("=" * 50)
     print(f"Starting MCP SSE server on http://127.0.0.1:{SSE_PORT}")
 

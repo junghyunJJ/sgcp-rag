@@ -1,8 +1,8 @@
-# llmwiki-rag
+# SGCP-RAG
 
 > **An Agentic RAG system with a self-rebuilding LLM Wiki navigation layer, MCP integration, and a Next.js GUI.**
 
-`llmwiki-rag` is a full-stack RAG (Retrieval-Augmented Generation) system built on PostgreSQL + `pgvector`. You upload documents into collections; they are automatically parsed, chunked, embedded, and searchable. On top of that, a **self-rebuilding LLM Wiki** maintains a markdown knowledge base that acts as a navigation layer for an **Agentic / Adaptive RAG** search graph. Everything is exposed simultaneously via a Next.js UI, a REST API, and an MCP (Model Context Protocol) server.
+`SGCP-RAG` is a full-stack RAG (Retrieval-Augmented Generation) system built on PostgreSQL + `pgvector`. You upload documents into collections; they are automatically parsed, chunked, embedded, and searchable. On top of that, a **self-rebuilding LLM Wiki** maintains a markdown knowledge base that acts as a navigation layer for an **Agentic / Adaptive RAG** search graph. Everything is exposed simultaneously via a Next.js UI, a REST API, and an MCP (Model Context Protocol) server.
 
 This project is a fork of [`teddynote-lab/langconnect-client`](https://github.com/teddynote-lab/langconnect-client) (itself based on LangChain AI's [`langconnect`](https://github.com/langchain-ai/langconnect)) extended with:
 
@@ -34,7 +34,7 @@ This project is a fork of [`teddynote-lab/langconnect-client`](https://github.co
 
 ## 1. Overview — What this project does
 
-`llmwiki-rag` bundles three responsibilities into one system:
+`SGCP-RAG` bundles three responsibilities into one system:
 
 | Capability | What it does |
 |------------|--------------|

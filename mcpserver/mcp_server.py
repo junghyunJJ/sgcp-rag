@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LangConnect MCP Server using FastMCP (stdio)"""
+"""SGCP-RAG MCP Server using FastMCP (stdio)"""
 
 import json
 import mimetypes
@@ -27,15 +27,15 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
 
 # Create FastMCP server
 mcp = FastMCP(
-    name="langconnect-rag-mcp",
-    instructions="This server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call agentic_search(collection_id, question) for AI-powered question answering with automatic query rewriting and answer validation. Call rebuild_llm_wiki(collection_id) to rebuild generated non-authoritative LLM Wiki navigation context for a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the health status of the server.",
+    name="SGCP-RAG",
+    instructions="This SGCP-RAG server provides vector search tools that can be used to search for documents in a collection. Call list_collections() to get a list of available collections. Call get_collection(collection_id) to get details of a specific collection. Call search_documents(collection_id, query, limit, search_type, filter_json) to search for documents in a collection. Call agentic_search(collection_id, question) for AI-powered question answering with automatic query rewriting and answer validation. Call rebuild_llm_wiki(collection_id) to rebuild generated non-authoritative LLM Wiki navigation context for a collection. Call list_documents(collection_id, limit) to list documents in a collection. Call add_documents(collection_id, text) to add a text document to a collection. Call add_documents_from_files(collection_id, file_paths, chunk_size, chunk_overlap) to upload files directly from filesystem (more efficient for large/binary files). Call delete_document(collection_id, document_id) to delete a document from a collection. Call get_health_status() to check the status of the server.",
 )
 
 
 # Basic dynamic resource returning a string
 @mcp.resource("resource://how-to-use-langconnect-rag-mcp")
 def get_instructions() -> str:
-    """Provides instructions on how to use the LangConnect RAG MCP server."""
+    """Provides instructions on how to use the SGCP-RAG MCP server."""
     return """
 Two approaches for answering questions from documents:
 
@@ -847,7 +847,7 @@ async def rebuild_llm_wiki(
 async def get_health_status() -> str:
     """Check API health status.
 
-    This function performs a health check on the LangConnect API server to verify
+    This function performs a health check on the SGCP-RAG API server to verify
     that it is running and accessible. It also provides information about the current
     configuration, including the API base URL and authentication status. This is useful
     for troubleshooting connection issues, verifying server availability, and confirming

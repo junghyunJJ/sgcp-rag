@@ -1,4 +1,4 @@
-"""Benchmark LangConnect hybrid search ranking through the public REST API."""
+"""Benchmark SGCP-RAG hybrid search ranking through the public REST API."""
 
 from __future__ import annotations
 
@@ -709,7 +709,7 @@ def _format_table(report: dict[str, Any]) -> str:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Benchmark LangConnect hybrid search ranking via REST.",
+        description="Benchmark SGCP-RAG hybrid search ranking via REST.",
     )
     parser.add_argument("--api-base", default=DEFAULT_API_BASE)
     parser.add_argument("--collection-id")

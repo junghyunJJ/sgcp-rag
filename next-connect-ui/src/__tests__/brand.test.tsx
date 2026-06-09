@@ -7,16 +7,16 @@ import { LanguageProvider } from '@/providers/language-provider'
 import { en } from '@/translations/en'
 import { ko } from '@/translations/ko'
 
-const DISPLAY_BRAND = 'LLM Wiki\n-RAG'
-const INLINE_BRAND = 'LLM Wiki-RAG'
+const DISPLAY_BRAND = 'SGCP-RAG'
+const INLINE_BRAND = 'SGCP-RAG'
 
 describe('application brand', () => {
-  it('uses LLM Wiki-RAG in app metadata', () => {
+  it('uses SGCP-RAG in app metadata', () => {
     expect(metadata.title).toBe(INLINE_BRAND)
     expect(metadata.description).toBe(INLINE_BRAND)
   })
 
-  it('uses LLM Wiki-RAG in translated landing copy', () => {
+  it('uses SGCP-RAG in translated landing copy', () => {
     expect(en.main.title).toContain(DISPLAY_BRAND)
     expect(en.main.subtitle).toContain(INLINE_BRAND)
     expect(en.main.about.description).toContain(INLINE_BRAND)
@@ -26,7 +26,7 @@ describe('application brand', () => {
     expect(ko.main.about.description).toContain(INLINE_BRAND)
   })
 
-  it('renders LLM Wiki-RAG in the sidebar header', () => {
+  it('renders SGCP-RAG in the sidebar header', () => {
     render(
       <LanguageProvider>
         <SidebarProvider>

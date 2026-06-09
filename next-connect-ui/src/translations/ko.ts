@@ -196,8 +196,8 @@ export const ko = {
     korean: '한국어'
   },
   main: {
-    title: '🔗 LLM Wiki\n-RAG',
-    subtitle: '<strong>LLM Wiki-RAG</strong>에 오신 것을 환영합니다.',
+    title: '🔗 SGCP-RAG',
+    subtitle: '<strong>SGCP-RAG</strong>에 오신 것을 환영합니다.',
     description: 'LangChain과 PostgreSQL로 구동되는 강력한 문서 관리 및 검색 시스템입니다.',
     keyFeatures: '🚀 주요 기능',
     keyFeaturesDescription: '이 애플리케이션은 고급 검색 기능을 갖춘 문서 관리를 위한 포괄적인 인터페이스를 제공합니다:',
@@ -240,7 +240,7 @@ export const ko = {
     },
     about: {
       title: '📌 이 프로젝트에 대해',
-      description: '<strong>LLM Wiki-RAG</strong>는 다음의 기술들을 결합한 오픈소스 프로젝트입니다:',
+      description: '<strong>SGCP-RAG</strong>는 다음의 기술들을 결합한 오픈소스 프로젝트입니다:',
       techStack: [
         '<strong>LangChain</strong> - 문서 처리 및 임베딩',
         '<strong>PostgreSQL</strong> - pgvector 확장을 통한 벡터 저장',

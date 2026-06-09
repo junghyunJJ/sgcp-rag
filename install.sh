@@ -9,7 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== LangConnect Installation Script ===${NC}"
+echo -e "${GREEN}=== SGCP-RAG Installation Script ===${NC}"
 echo ""
 
 # Check if pnpm is installed

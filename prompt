@@ -1,6 +1,6 @@
 <!-- Spatial Omics Analysis Pipeline Construction Request
 
-Please construct a spatial omics analysis pipeline using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in LangConnect RAG MCP.
+Please construct a spatial omics analysis pipeline using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in SGCP-RAG MCP.
 
 1. Preprocessing
 
@@ -69,7 +69,7 @@ Expected output formats and interpretation guide -->
                           │   annotation  │
                           └───────────────┘          
 
-Please construct a spatial omics analysis plan using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in LangConnect RAG MCP.
+Please construct a spatial omics analysis plan using the papers and GitHub repository contents related to spatial omics analysis stored in "pipeline" collection in SGCP-RAG MCP.
 
 You are a spatial biolofy expert, so you can construct pipelin plan for a spatial omics analysis using the papers and GitHub repository contents related to spatial omics tools.
  

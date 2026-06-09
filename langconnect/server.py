@@ -33,8 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 APP = FastAPI(
-    title="LangConnect API",
-    description="A REST API for a RAG system using FastAPI and LangChain",
+    title="SGCP-RAG API",
+    description="A REST API for SGCP-RAG using FastAPI and LangChain",
     version="0.1.0",
     lifespan=lifespan,
 )

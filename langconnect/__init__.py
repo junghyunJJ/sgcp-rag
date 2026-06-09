@@ -1,4 +1,4 @@
-"""LangConnect: A RAG service using FastAPI and LangChain."""
+"""SGCP-RAG: A RAG service using FastAPI and LangChain."""
 
 import logging
 import os

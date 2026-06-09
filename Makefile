@@ -11,7 +11,7 @@ build:
 	@echo "📌 Run 'make up' to start the server"
 
 up:
-	@echo "🚀 Starting LangConnect server..."
+	@echo "🚀 Starting SGCP-RAG server..."
 	@docker-compose up -d
 	@echo "✅ Server started successfully!"
 	@echo "📌 Access points:"
@@ -21,12 +21,12 @@ up:
 	@echo "   - PostgreSQL: localhost:5432"
 
 down:
-	@echo "🛑 Stopping LangConnect server..."
+	@echo "🛑 Stopping SGCP-RAG server..."
 	@docker-compose down
 	@echo "✅ Server stopped successfully!"
 
 restart:
-	@echo "🔄 Restarting LangConnect server..."
+	@echo "🔄 Restarting SGCP-RAG server..."
 	@docker-compose down
 	@docker-compose up -d
 	@echo "✅ Server restarted successfully!"
@@ -41,4 +41,3 @@ TEST_FILE ?= tests/unit_tests
 
 test:
 	./run_tests.sh $(TEST_FILE)
-

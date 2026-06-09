@@ -1,1 +1,1 @@
-"""Custom document parsers for LangConnect."""
+"""Custom document parsers for SGCP-RAG."""
