@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "langconnect-rag-mcp": {
-      "command": "/Users/jungj2/Dropbox/Metadata/mcp/llmwiki_rag/.venv/bin/python",
+      "command": "/Users/jungj2/Dropbox/Metadata/mcp/sgcp-rag/.venv/bin/python",
       "args": [
-        "/Users/jungj2/Dropbox/Metadata/mcp/llmwiki_rag/mcpserver/mcp_server.py"
+        "/Users/jungj2/Dropbox/Metadata/mcp/sgcp-rag/mcpserver/mcp_server.py"
       ],
       "env": {
         "API_BASE_URL": "http://localhost:8888"
