@@ -28,7 +28,7 @@ For Claude Desktop, use the generated config:
 ```json
 {
   "mcpServers": {
-    "langconnect-rag-mcp": {
+    "sgcp-rag": {
       "command": "/path/to/python",
       "args": ["/path/to/mcp_server.py"],
       "env": {

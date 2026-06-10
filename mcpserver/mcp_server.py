@@ -33,7 +33,7 @@ mcp = FastMCP(
 
 
 # Basic dynamic resource returning a string
-@mcp.resource("resource://how-to-use-langconnect-rag-mcp")
+@mcp.resource("resource://how-to-use-sgcp-rag")
 def get_instructions() -> str:
     """Provides instructions on how to use the SGCP-RAG MCP server."""
     return """

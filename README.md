@@ -485,7 +485,7 @@ Example `mcp_config.json` to paste into Claude Desktop's MCP settings:
 ```json
 {
   "mcpServers": {
-    "langconnect-rag-mcp": {
+    "sgcp-rag": {
       "command": "/path/to/uv",
       "args": ["run", "python", "/abs/path/to/mcpserver/mcp_server.py"],
       "env": {
