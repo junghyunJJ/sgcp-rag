@@ -316,10 +316,10 @@ AGENT_LLM_BASE_URL=http://localhost:11434
 AGENT_LLM_PROVIDER=auto              # auto = try Ollama first, fall back to OpenAI
 AGENT_LLM_MODEL=qwen3.5:122b
 AGENT_LLM_OPENAI_MODEL=gpt-5.4
-WIKI_LLM_PROVIDER=ollama
-WIKI_LLM_BASE_URL=http://host.docker.internal:7000
-WIKI_LLM_MODEL=qwen3.5:35b
-WIKI_LLM_TEMPERATURE=0
+SNI_LLM_PROVIDER=ollama
+SNI_LLM_BASE_URL=http://host.docker.internal:11434
+SNI_LLM_MODEL=qwen3.5:397b-cloud
+SNI_LLM_TEMPERATURE=0
 
 # PostgreSQL
 POSTGRES_USER=llmwiki
@@ -583,10 +583,10 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `AGENT_LLM_MODEL` | `qwen3.5:122b` | ✗ | Ollama model name |
 | `AGENT_LLM_OPENAI_MODEL` | `gpt-5.4` | ✗ | OpenAI fallback model |
 | `AGENT_LLM_TEMPERATURE` | `0` | ✗ |  |
-| `WIKI_LLM_PROVIDER` | (= shared agent LLM factory) | ✗ | LLM Wiki rebuild provider: `openai` / `google` / `ollama` |
-| `WIKI_LLM_BASE_URL` | — | ✗ | Dedicated Ollama endpoint for LLM Wiki rebuild |
-| `WIKI_LLM_MODEL` | (= shared agent LLM factory) | ✗ | LLM Wiki rebuild model name |
-| `WIKI_LLM_TEMPERATURE` | (= shared agent LLM factory) | ✗ | LLM Wiki rebuild temperature |
+| `SNI_LLM_PROVIDER` | (= shared agent LLM factory) | ✗ | SNI rebuild provider: `openai` / `google` / `ollama` |
+| `SNI_LLM_BASE_URL` | — | ✗ | Dedicated Ollama endpoint for SNI rebuild |
+| `SNI_LLM_MODEL` | (= shared agent LLM factory) | ✗ | SNI rebuild model name |
+| `SNI_LLM_TEMPERATURE` | (= shared agent LLM factory) | ✗ | SNI rebuild temperature |
 | `AGENT_MAX_REWRITES` | `3` | ✗ | Agentic loop guard |
 | `QUERY_EXPANSION_LLM_PROVIDER` | `auto` | ✗ |  |
 | `QUERY_EXPANSION_LLM_MODEL` | `qwen3.5:35b` | ✗ |  |
@@ -595,7 +595,7 @@ You are a question-answer assistant grounded in the user's RAG collection.
 
 > When `AGENT_LLM_PROVIDER=auto`, the agent first tries Ollama at `AGENT_LLM_BASE_URL` (or `OLLAMA_BASE_URL`), and on failure does **one** fallback to `AGENT_LLM_OPENAI_MODEL`. If you explicitly set `AGENT_LLM_PROVIDER=ollama`, no fallback happens — failures are propagated as-is.
 
-> LLM Wiki rebuild reads `WIKI_LLM_*` as defaults before falling back to the shared agent LLM factory. Per-request `llm_provider`, `llm_model`, and `llm_temperature` still override these env defaults. `WIKI_LLM_PROVIDER=auto` is not supported unless a future change adds explicit auto routing for wiki rebuilds.
+> SNI rebuild reads `SNI_LLM_*` as defaults before falling back to the shared agent LLM factory. Per-request `llm_provider`, `llm_model`, and `llm_temperature` still override these env defaults. `SNI_LLM_PROVIDER=auto` is not supported unless a future change adds explicit auto routing for SNI rebuilds.
 
 ---
 

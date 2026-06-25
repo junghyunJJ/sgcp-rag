@@ -8,8 +8,8 @@ import pytest
 from langconnect.services import llm_wiki
 
 
-def test_get_wiki_llm_uses_wiki_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Use WIKI_LLM_* env values when rebuild args are omitted."""
+def test_get_wiki_llm_uses_sni_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use SNI_LLM_* env values when rebuild args are omitted."""
     calls: dict[str, object] = {}
     fake_llm = object()
 
@@ -17,13 +17,13 @@ def test_get_wiki_llm_uses_wiki_env(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.update(kwargs)
         return fake_llm
 
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_PROVIDER_ENV, "ollama")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_PROVIDER_ENV, "ollama")
     monkeypatch.setenv(
-        llm_wiki.WIKI_LLM_BASE_URL_ENV,
-        "http://host.docker.internal:7000",
+        llm_wiki.SNI_LLM_BASE_URL_ENV,
+        "http://host.docker.internal:11434",
     )
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_MODEL_ENV, "qwen3.5:35b")
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_TEMPERATURE_ENV, "0")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_MODEL_ENV, "qwen3.5:397b-cloud")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_TEMPERATURE_ENV, "0")
     monkeypatch.setattr(llm_wiki, "get_agent_llm", fake_get_agent_llm)
 
     llm = llm_wiki._get_wiki_llm(
@@ -35,16 +35,16 @@ def test_get_wiki_llm_uses_wiki_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert llm is fake_llm
     assert calls == {
         "provider": "ollama",
-        "model": "qwen3.5:35b",
+        "model": "qwen3.5:397b-cloud",
         "temperature": 0.0,
-        "base_url": "http://host.docker.internal:7000",
+        "base_url": "http://host.docker.internal:11434",
     }
 
 
 def test_get_wiki_llm_explicit_args_override_wiki_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Prefer explicit rebuild args over WIKI_LLM_* env values."""
+    """Prefer explicit rebuild args over SNI_LLM_* env values."""
     calls: dict[str, object] = {}
     fake_llm = object()
 
@@ -52,13 +52,13 @@ def test_get_wiki_llm_explicit_args_override_wiki_env(
         calls.update(kwargs)
         return fake_llm
 
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_PROVIDER_ENV, "ollama")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_PROVIDER_ENV, "ollama")
     monkeypatch.setenv(
-        llm_wiki.WIKI_LLM_BASE_URL_ENV,
-        "http://host.docker.internal:7000",
+        llm_wiki.SNI_LLM_BASE_URL_ENV,
+        "http://host.docker.internal:11434",
     )
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_MODEL_ENV, "qwen3.5:35b")
-    monkeypatch.setenv(llm_wiki.WIKI_LLM_TEMPERATURE_ENV, "0")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_MODEL_ENV, "qwen3.5:397b-cloud")
+    monkeypatch.setenv(llm_wiki.SNI_LLM_TEMPERATURE_ENV, "0")
     monkeypatch.setattr(llm_wiki, "get_agent_llm", fake_get_agent_llm)
 
     llm = llm_wiki._get_wiki_llm(

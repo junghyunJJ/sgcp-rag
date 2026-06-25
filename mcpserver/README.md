@@ -53,10 +53,10 @@ For Claude Desktop, use the generated config:
 - `AGENT_LLM_MODEL`: Agentic RAG Ollama model for `auto`/`ollama` (default: `qwen3.5:122b`)
 - `AGENT_LLM_OPENAI_MODEL`: OpenAI fallback model for Agentic RAG `auto` mode (default: `gpt-5.4`)
 - `AGENT_LLM_TEMPERATURE`: Agentic RAG LLM temperature (default: `0`)
-- `WIKI_LLM_PROVIDER`: LLM Wiki rebuild provider: `openai`, `google`, or `ollama`
-- `WIKI_LLM_BASE_URL`: LLM Wiki rebuild Ollama endpoint
-- `WIKI_LLM_MODEL`: LLM Wiki rebuild model name, for example `qwen3.5:35b`
-- `WIKI_LLM_TEMPERATURE`: LLM Wiki rebuild LLM temperature
+- `SNI_LLM_PROVIDER`: SNI rebuild provider: `openai`, `google`, or `ollama`
+- `SNI_LLM_BASE_URL`: SNI rebuild Ollama endpoint
+- `SNI_LLM_MODEL`: SNI rebuild model name, for example `qwen3.5:397b-cloud`
+- `SNI_LLM_TEMPERATURE`: SNI rebuild LLM temperature
 - `OPENAI_API_KEY`: Required only when OpenAI is selected or used as fallback
 
 ## Testing with MCP Inspector
