@@ -39,6 +39,10 @@ MAX_SOURCE_SKIP_RATIO = 0.2
 CHUNK_ORDER_METADATA_KEYS = ("chunk_index", "chunk_order", "chunk_sequence")
 WIKI_ABSTRACT_SUMMARY_ENV = "WIKI_ABSTRACT_SUMMARY"
 WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
+WIKI_LLM_PROVIDER_ENV = "WIKI_LLM_PROVIDER"
+WIKI_LLM_BASE_URL_ENV = "WIKI_LLM_BASE_URL"
+WIKI_LLM_MODEL_ENV = "WIKI_LLM_MODEL"
+WIKI_LLM_TEMPERATURE_ENV = "WIKI_LLM_TEMPERATURE"
 _ABSTRACT_OVERRIDES: dict[str, str] | None = None
 
 CONCEPT_MAX_PAGES = 10
@@ -132,6 +136,40 @@ class _ArtifactBundle:
 
 def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _env_value(name: str) -> str | None:
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else None
+
+
+def _wiki_llm_temperature(llm_temperature: float | None) -> float | None:
+    if llm_temperature is not None:
+        return llm_temperature
+
+    value = _env_value(WIKI_LLM_TEMPERATURE_ENV)
+    return float(value) if value is not None else None
+
+
+def _get_wiki_llm(
+    *,
+    llm_provider: str | None,
+    llm_model: str | None,
+    llm_temperature: float | None,
+):
+    provider = llm_provider or _env_value(WIKI_LLM_PROVIDER_ENV)
+    provider_name = provider.strip().lower() if provider else None
+
+    return get_agent_llm(
+        provider=provider,
+        model=llm_model or _env_value(WIKI_LLM_MODEL_ENV),
+        temperature=_wiki_llm_temperature(llm_temperature),
+        base_url=(
+            _env_value(WIKI_LLM_BASE_URL_ENV)
+            if provider_name == "ollama"
+            else None
+        ),
+    )
 
 
 def _slugify(value: object, *, fallback: str) -> str:
@@ -1344,10 +1382,10 @@ async def rebuild_llm_wiki(
     try:
         chunks = await _list_all_chunks(collection_id)
         if chunks:
-            llm = get_agent_llm(
-                provider=llm_provider,
-                model=llm_model,
-                temperature=llm_temperature,
+            llm = _get_wiki_llm(
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                llm_temperature=llm_temperature,
             )
             source_pages = await _generate_source_pages(
                 llm,
