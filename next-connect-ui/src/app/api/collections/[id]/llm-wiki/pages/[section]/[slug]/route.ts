@@ -31,7 +31,7 @@ export async function GET(
 
   if (!response.ok) {
     return NextResponse.json(
-      errorPayload(data, 'Failed to fetch LLM Wiki page'),
+      errorPayload(data, 'Failed to fetch SNI page'),
       { status: response.status }
     )
   }

@@ -30,7 +30,7 @@ export async function GET(
 
   if (!response.ok) {
     return NextResponse.json(
-      errorPayload(data, 'Failed to fetch LLM Wiki'),
+      errorPayload(data, 'Failed to fetch SNI'),
       { status: response.status }
     )
   }
@@ -53,7 +53,7 @@ export async function POST(
 
   if (!response.ok) {
     return NextResponse.json(
-      errorPayload(data, 'Failed to rebuild LLM Wiki'),
+      errorPayload(data, 'Failed to rebuild SNI'),
       { status: response.status }
     )
   }

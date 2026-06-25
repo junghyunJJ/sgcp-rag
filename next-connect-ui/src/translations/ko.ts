@@ -43,7 +43,7 @@ export const ko = {
       stats: '통계',
       uuid: 'UUID',
       metadata: '메타데이터',
-      wiki: '위키'
+      wiki: 'SNI'
     },
     deleteConfirm: {
       title: '삭제 확인',
@@ -75,22 +75,22 @@ export const ko = {
     }
   },
   wiki: {
-    title: 'LLM 위키',
+    title: 'Summary Navigation Index (SNI)',
     backToCollections: '컬렉션으로 돌아가기',
-    generatedNavigationNotice: '생성된 위키 내비게이션입니다. 근거 확인에는 원본 검색 청크를 사용하세요.',
+    generatedNavigationNotice: '생성된 SNI 내비게이션입니다. 근거 확인에는 원본 검색 청크를 사용하세요.',
     index: '인덱스',
     sources: '소스',
     concepts: '개념',
     noSources: '소스 없음',
     noConcepts: '개념 없음',
-    notGeneratedTitle: 'Wiki not generated yet',
-    notGeneratedDescription: '현재 문서를 기반으로 이 컬렉션의 생성형 내비게이션을 만듭니다.',
-    rebuild: 'Rebuild Wiki',
+    notGeneratedTitle: 'SNI가 아직 생성되지 않았습니다',
+    notGeneratedDescription: '현재 문서를 기반으로 이 컬렉션의 SNI를 만듭니다.',
+    rebuild: 'SNI 재생성',
     rebuilding: '재생성 중...',
-    loadError: 'LLM 위키를 불러오지 못했습니다',
-    pageLoadError: '위키 페이지를 불러오지 못했습니다',
-    rebuildSuccess: '위키가 재생성되었습니다',
-    rebuildError: '위키 재생성 실패',
+    loadError: 'SNI를 불러오지 못했습니다',
+    pageLoadError: 'SNI 페이지를 불러오지 못했습니다',
+    rebuildSuccess: 'SNI가 재생성되었습니다',
+    rebuildError: 'SNI 재생성 실패',
   },
   documents: {
     title: '문서 관리',

@@ -382,7 +382,7 @@ export function LLMWikiViewer({ collectionId }: LLMWikiViewerProps) {
           return (
             <button
               type="button"
-              aria-label={`Open wiki page ${String(children)} from markdown`}
+              aria-label={`Open SNI page ${String(children)} from markdown`}
               className="text-blue-600 underline underline-offset-2 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               onClick={(event) => {
                 event.preventDefault()

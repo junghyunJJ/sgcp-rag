@@ -43,7 +43,7 @@ export const en = {
       stats: 'Statistics',
       uuid: 'UUID',
       metadata: 'Metadata',
-      wiki: 'Wiki'
+      wiki: 'SNI'
     },
     deleteConfirm: {
       title: 'Delete Confirmation',
@@ -75,22 +75,22 @@ export const en = {
     }
   },
   wiki: {
-    title: 'LLM Wiki',
+    title: 'Summary Navigation Index (SNI)',
     backToCollections: 'Back to Collections',
-    generatedNavigationNotice: 'Generated wiki navigation. Use original retrieved chunks as evidence.',
+    generatedNavigationNotice: 'Generated SNI navigation. Use original retrieved chunks as evidence.',
     index: 'Index',
     sources: 'Sources',
     concepts: 'Concepts',
     noSources: 'No sources',
     noConcepts: 'No concepts',
-    notGeneratedTitle: 'Wiki not generated yet',
-    notGeneratedDescription: 'Build generated navigation for this collection from the current documents.',
-    rebuild: 'Rebuild Wiki',
+    notGeneratedTitle: 'SNI not generated yet',
+    notGeneratedDescription: 'Build the SNI for this collection from the current documents.',
+    rebuild: 'Rebuild SNI',
     rebuilding: 'Rebuilding...',
-    loadError: 'Failed to load LLM Wiki',
-    pageLoadError: 'Failed to load wiki page',
-    rebuildSuccess: 'Wiki rebuilt successfully',
-    rebuildError: 'Failed to rebuild wiki',
+    loadError: 'Failed to load SNI',
+    pageLoadError: 'Failed to load SNI page',
+    rebuildSuccess: 'SNI rebuilt successfully',
+    rebuildError: 'Failed to rebuild SNI',
   },
   documents: {
     title: 'Document Management',

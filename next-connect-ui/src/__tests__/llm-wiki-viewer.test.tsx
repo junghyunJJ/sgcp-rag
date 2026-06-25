@@ -52,7 +52,7 @@ describe('LLM Wiki viewer', () => {
     renderWithLanguage(<CollectionsPage />)
 
     const link = await screen.findByRole('link', {
-      name: 'Open wiki for Alpha Collection',
+      name: 'Open SNI for Alpha Collection',
     })
     expect(link).toHaveAttribute('href', `/collections/${COLLECTION_ID}/wiki`)
   })
@@ -77,7 +77,7 @@ describe('LLM Wiki viewer', () => {
             {
               success: false,
               code: 'wiki_not_generated',
-              message: 'Wiki not generated yet',
+              message: 'SNI not generated yet',
             },
             { status: 404 }
           )
@@ -99,8 +99,8 @@ describe('LLM Wiki viewer', () => {
 
     renderWithLanguage(<LLMWikiViewer collectionId={COLLECTION_ID} />)
 
-    expect(await screen.findByText('Wiki not generated yet')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Rebuild Wiki' }))
+    expect(await screen.findByText('SNI not generated yet')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rebuild SNI' }))
 
     await waitFor(() => {
       expect(screen.getByText('Generated Index')).toBeInTheDocument()
@@ -171,7 +171,7 @@ describe('LLM Wiki viewer', () => {
     renderWithLanguage(<LLMWikiViewer collectionId={COLLECTION_ID} />)
 
     expect(await screen.findByText('Generated Index')).toBeInTheDocument()
-    expect(screen.getByText('Generated wiki navigation. Use original retrieved chunks as evidence.')).toBeInTheDocument()
+    expect(screen.getByText('Generated SNI navigation. Use original retrieved chunks as evidence.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Source One' }))
 

@@ -519,7 +519,7 @@ export default function CollectionsPage() {
                             <Button asChild variant="outline" size="sm">
                               <Link
                                 href={`/collections/${collection.uuid}/wiki`}
-                                aria-label={`Open wiki for ${collection.name}`}
+                                aria-label={`Open SNI for ${collection.name}`}
                               >
                                 <BookOpen className="h-4 w-4" />
                                 <span>{t('collections.table.wiki')}</span>
