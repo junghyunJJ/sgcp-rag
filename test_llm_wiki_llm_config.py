@@ -1,8 +1,7 @@
+# ruff: noqa: S101, SLF001
 """Tests for LLM Wiki-specific LLM environment selection."""
 
 from __future__ import annotations
-
-# ruff: noqa: S101, SLF001
 
 import pytest
 
@@ -10,6 +9,7 @@ from langconnect.services import llm_wiki
 
 
 def test_get_wiki_llm_uses_wiki_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use WIKI_LLM_* env values when rebuild args are omitted."""
     calls: dict[str, object] = {}
     fake_llm = object()
 
@@ -44,6 +44,7 @@ def test_get_wiki_llm_uses_wiki_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_wiki_llm_explicit_args_override_wiki_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Prefer explicit rebuild args over WIKI_LLM_* env values."""
     calls: dict[str, object] = {}
     fake_llm = object()
 

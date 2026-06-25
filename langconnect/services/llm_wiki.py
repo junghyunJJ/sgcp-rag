@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 
 from langconnect.agent.config import get_agent_llm
@@ -156,7 +157,7 @@ def _get_wiki_llm(
     llm_provider: str | None,
     llm_model: str | None,
     llm_temperature: float | None,
-):
+) -> BaseChatModel:
     provider = llm_provider or _env_value(WIKI_LLM_PROVIDER_ENV)
     provider_name = provider.strip().lower() if provider else None
 
