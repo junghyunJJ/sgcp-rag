@@ -16,7 +16,12 @@ from uuid import uuid4
 from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 
-from langconnect.agent.config import get_agent_llm
+from langconnect.agent.config import (
+    DEFAULT_AGENT_OLLAMA_MODEL,
+    DEFAULT_AGENT_OPENAI_MODEL,
+    get_agent_llm,
+    is_ollama_model_available,
+)
 from langconnect.agent.wiki_context import _validate_pages
 from langconnect.database.collections import Collection
 from langconnect.models.llm_wiki import (
@@ -43,7 +48,9 @@ WIKI_ABSTRACT_SOURCE_FILE_ENV = "WIKI_ABSTRACT_SOURCE_FILE"
 SNI_LLM_PROVIDER_ENV = "SNI_LLM_PROVIDER"
 SNI_LLM_BASE_URL_ENV = "SNI_LLM_BASE_URL"
 SNI_LLM_MODEL_ENV = "SNI_LLM_MODEL"
+SNI_LLM_OPENAI_MODEL_ENV = "SNI_LLM_OPENAI_MODEL"
 SNI_LLM_TEMPERATURE_ENV = "SNI_LLM_TEMPERATURE"
+SNI_PROVIDER_AUTO = "auto"
 _ABSTRACT_OVERRIDES: dict[str, str] | None = None
 
 CONCEPT_MAX_PAGES = 10
@@ -152,24 +159,80 @@ def _wiki_llm_temperature(llm_temperature: float | None) -> float | None:
     return float(value) if value is not None else None
 
 
-def _get_wiki_llm(
+def _sni_provider(llm_provider: str | None) -> str | None:
+    provider = llm_provider or _env_value(SNI_LLM_PROVIDER_ENV)
+    return provider.strip().lower() if provider else None
+
+
+def _sni_ollama_model(llm_model: str | None) -> str:
+    return llm_model or _env_value(SNI_LLM_MODEL_ENV) or DEFAULT_AGENT_OLLAMA_MODEL
+
+
+def _sni_openai_model() -> str:
+    return _env_value(SNI_LLM_OPENAI_MODEL_ENV) or DEFAULT_AGENT_OPENAI_MODEL
+
+
+def _create_sni_ollama_llm(
+    *,
+    model: str,
+    temperature: float | None,
+    base_url: str | None,
+) -> BaseChatModel:
+    return get_agent_llm(
+        provider="ollama",
+        model=model,
+        temperature=temperature,
+        base_url=base_url,
+    )
+
+
+def _create_sni_openai_llm(*, temperature: float | None) -> BaseChatModel:
+    return get_agent_llm(
+        provider="openai",
+        model=_sni_openai_model(),
+        temperature=temperature,
+        base_url=None,
+    )
+
+
+async def _get_wiki_llm(
     *,
     llm_provider: str | None,
     llm_model: str | None,
     llm_temperature: float | None,
 ) -> BaseChatModel:
-    provider = llm_provider or _env_value(SNI_LLM_PROVIDER_ENV)
-    provider_name = provider.strip().lower() if provider else None
+    provider = _sni_provider(llm_provider)
+    temperature = _wiki_llm_temperature(llm_temperature)
+
+    if provider == SNI_PROVIDER_AUTO:
+        model = _sni_ollama_model(llm_model)
+        base_url = _env_value(SNI_LLM_BASE_URL_ENV)
+        if await is_ollama_model_available(model, base_url or ""):
+            return _create_sni_ollama_llm(
+                model=model,
+                temperature=temperature,
+                base_url=base_url,
+            )
+
+        logger.warning(
+            "Ollama SNI rebuild model %s unavailable; falling back to OpenAI %s",
+            model,
+            _sni_openai_model(),
+        )
+        return _create_sni_openai_llm(temperature=temperature)
+
+    if provider == "ollama":
+        return _create_sni_ollama_llm(
+            model=_sni_ollama_model(llm_model),
+            temperature=temperature,
+            base_url=_env_value(SNI_LLM_BASE_URL_ENV),
+        )
 
     return get_agent_llm(
         provider=provider,
         model=llm_model or _env_value(SNI_LLM_MODEL_ENV),
-        temperature=_wiki_llm_temperature(llm_temperature),
-        base_url=(
-            _env_value(SNI_LLM_BASE_URL_ENV)
-            if provider_name == "ollama"
-            else None
-        ),
+        temperature=temperature,
+        base_url=None,
     )
 
 
@@ -1383,7 +1446,7 @@ async def rebuild_llm_wiki(
     try:
         chunks = await _list_all_chunks(collection_id)
         if chunks:
-            llm = _get_wiki_llm(
+            llm = await _get_wiki_llm(
                 llm_provider=llm_provider,
                 llm_model=llm_model,
                 llm_temperature=llm_temperature,
