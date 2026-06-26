@@ -316,9 +316,10 @@ AGENT_LLM_BASE_URL=http://localhost:11434
 AGENT_LLM_PROVIDER=auto              # auto = try Ollama first, fall back to OpenAI
 AGENT_LLM_MODEL=qwen3.5:122b
 AGENT_LLM_OPENAI_MODEL=gpt-5.4
-SNI_LLM_PROVIDER=ollama
+SNI_LLM_PROVIDER=auto
 SNI_LLM_BASE_URL=http://host.docker.internal:11434
 SNI_LLM_MODEL=qwen3.5:397b-cloud
+SNI_LLM_OPENAI_MODEL=gpt-5.4-mini
 SNI_LLM_TEMPERATURE=0
 
 # PostgreSQL
@@ -586,6 +587,7 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `SNI_LLM_PROVIDER` | (= shared agent LLM factory) | ✗ | SNI rebuild provider: `openai` / `google` / `ollama` |
 | `SNI_LLM_BASE_URL` | — | ✗ | Dedicated Ollama endpoint for SNI rebuild |
 | `SNI_LLM_MODEL` | (= shared agent LLM factory) | ✗ | SNI rebuild model name |
+| `SNI_LLM_OPENAI_MODEL` | `gpt-5.4` | ✗ | OpenAI fallback model when `SNI_LLM_PROVIDER=auto` |
 | `SNI_LLM_TEMPERATURE` | (= shared agent LLM factory) | ✗ | SNI rebuild temperature |
 | `AGENT_MAX_REWRITES` | `3` | ✗ | Agentic loop guard |
 | `QUERY_EXPANSION_LLM_PROVIDER` | `auto` | ✗ |  |
@@ -595,7 +597,7 @@ You are a question-answer assistant grounded in the user's RAG collection.
 
 > When `AGENT_LLM_PROVIDER=auto`, the agent first tries Ollama at `AGENT_LLM_BASE_URL` (or `OLLAMA_BASE_URL`), and on failure does **one** fallback to `AGENT_LLM_OPENAI_MODEL`. If you explicitly set `AGENT_LLM_PROVIDER=ollama`, no fallback happens — failures are propagated as-is.
 
-> SNI rebuild reads `SNI_LLM_*` as defaults before falling back to the shared agent LLM factory. Per-request `llm_provider`, `llm_model`, and `llm_temperature` still override these env defaults. `SNI_LLM_PROVIDER=auto` is not supported unless a future change adds explicit auto routing for SNI rebuilds.
+> When `SNI_LLM_PROVIDER=auto`, SNI rebuild first checks whether `SNI_LLM_MODEL` is available at `SNI_LLM_BASE_URL`; if not, it falls back to OpenAI using `SNI_LLM_OPENAI_MODEL`. Per-request `llm_provider`, `llm_model`, and `llm_temperature` still override env defaults. If you explicitly set `SNI_LLM_PROVIDER=ollama`, no fallback happens.
 
 ---
 

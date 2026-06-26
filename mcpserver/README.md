@@ -56,6 +56,7 @@ For Claude Desktop, use the generated config:
 - `SNI_LLM_PROVIDER`: SNI rebuild provider: `openai`, `google`, or `ollama`
 - `SNI_LLM_BASE_URL`: SNI rebuild Ollama endpoint
 - `SNI_LLM_MODEL`: SNI rebuild model name, for example `qwen3.5:397b-cloud`
+- `SNI_LLM_OPENAI_MODEL`: OpenAI fallback model for SNI rebuild `auto` mode
 - `SNI_LLM_TEMPERATURE`: SNI rebuild LLM temperature
 - `OPENAI_API_KEY`: Required only when OpenAI is selected or used as fallback
 
