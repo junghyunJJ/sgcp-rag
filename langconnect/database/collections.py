@@ -172,9 +172,16 @@ class CollectionsManager:
         async with get_db_connection() as conn:
             rec = await conn.fetchrow(
                 """
-                SELECT uuid, name, cmetadata
-                  FROM langchain_pg_collection
-                 WHERE uuid = $1;
+                SELECT
+                    c.uuid,
+                    c.name,
+                    c.cmetadata,
+                    COUNT(DISTINCT e.cmetadata->>'file_id') AS document_count,
+                    COUNT(e.id) AS chunk_count
+                  FROM langchain_pg_collection c
+                  LEFT JOIN langchain_pg_embedding e ON c.uuid = e.collection_id
+                 WHERE c.uuid = $1
+                 GROUP BY c.uuid;
                 """,
                 collection_id,
             )
@@ -188,6 +195,8 @@ class CollectionsManager:
             "uuid": str(rec["uuid"]),
             "name": name,
             "metadata": metadata or {},
+            "document_count": rec["document_count"],
+            "chunk_count": rec["chunk_count"],
             "table_id": rec["name"],
         }
 

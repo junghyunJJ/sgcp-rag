@@ -409,6 +409,7 @@ async def add_documents(
     chunk_size: int = 3000,
     chunk_overlap: int = 200,
     filename: str = "document.txt",
+    rebuild_wiki: bool = True,
 ) -> str:
     """Add a text document to a collection.
 
@@ -433,6 +434,7 @@ async def add_documents(
                       Overlap helps maintain context across chunk boundaries.
         filename: Optional filename for the document (default: "document.txt").
                  Used for tracking and metadata purposes.
+        rebuild_wiki: Whether to rebuild the LLM Wiki immediately after upload.
 
     Returns:
         str: Success message indicating the document was added and the number of chunks created.
@@ -456,6 +458,7 @@ async def add_documents(
         "metadatas_json": json.dumps([metadata]),
         "chunk_size": str(chunk_size),
         "chunk_overlap": str(chunk_overlap),
+        "rebuild_wiki": str(rebuild_wiki).lower(),
     }
 
     # Remove Content-Type for multipart
@@ -491,6 +494,7 @@ async def add_documents_from_files(
     file_paths: list[str] | str,
     chunk_size: int = 3000,
     chunk_overlap: int = 200,
+    rebuild_wiki: bool = True,
 ) -> str:
     """Upload files directly from local filesystem without reading content into text first.
 
@@ -513,6 +517,7 @@ async def add_documents_from_files(
                    Larger chunks preserve more context but may reduce precision.
         chunk_overlap: Number of overlapping characters between chunks (default: 200).
                       Overlap helps maintain context across chunk boundaries.
+        rebuild_wiki: Whether to rebuild the LLM Wiki immediately after upload.
 
     Returns:
         str: Success message indicating the number of files processed and chunks created.
@@ -628,6 +633,7 @@ async def add_documents_from_files(
         "metadatas_json": json.dumps(metadatas),
         "chunk_size": str(chunk_size),
         "chunk_overlap": str(chunk_overlap),
+        "rebuild_wiki": str(rebuild_wiki).lower(),
     }
 
     # Remove Content-Type for multipart

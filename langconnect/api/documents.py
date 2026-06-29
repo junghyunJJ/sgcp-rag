@@ -102,6 +102,7 @@ async def documents_create(
     metadatas_json: str | None = Form(None),
     chunk_size: int = Form(3000, ge=10, le=10000),
     chunk_overlap: int = Form(200, ge=0, le=5000),
+    rebuild_wiki: bool = Form(True),
 ):
     """Processes and indexes (adds) new document files with optional metadata.
 
@@ -111,6 +112,7 @@ async def documents_create(
         metadatas_json: JSON string containing metadata for each file
         chunk_size: Maximum number of characters in each chunk (default: 3000, range: 10-10000)
         chunk_overlap: Number of overlapping characters between chunks (default: 200, range: 0-5000)
+        rebuild_wiki: Whether to rebuild LLM Wiki immediately after upload.
     """
     if chunk_overlap >= chunk_size:
         raise HTTPException(
@@ -214,22 +216,28 @@ async def documents_create(
             "added_chunk_ids": added_ids,
         }
 
-        try:
-            wiki_result = await rebuild_llm_wiki(str(collection_id))
-        except Exception as wiki_exc:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "success": False,
-                    "error": "documents_indexed_wiki_rebuild_failed",
-                    "message": "Documents were indexed, but LLM Wiki rebuild failed.",
-                    "documents_indexed": True,
-                    "added_chunk_ids": added_ids,
-                    "wiki_rebuild_error": str(wiki_exc),
-                },
-            )
+        if rebuild_wiki:
+            try:
+                wiki_result = await rebuild_llm_wiki(str(collection_id))
+            except Exception as wiki_exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "success": False,
+                        "error": "documents_indexed_wiki_rebuild_failed",
+                        "message": "Documents were indexed, but LLM Wiki rebuild failed.",
+                        "documents_indexed": True,
+                        "added_chunk_ids": added_ids,
+                        "wiki_rebuild_error": str(wiki_exc),
+                    },
+                )
 
-        response_data["llm_wiki"] = wiki_result.model_dump(mode="json")
+            response_data["llm_wiki"] = wiki_result.model_dump(mode="json")
+        else:
+            response_data["llm_wiki"] = {
+                "skipped": True,
+                "recovery": "Call rebuild_llm_wiki(collection_id) after all uploads finish.",
+            }
 
         warnings: list[str] = []
         if failed_files:
