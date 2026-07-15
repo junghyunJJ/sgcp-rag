@@ -1,13 +1,13 @@
 # SGCP-RAG
 
-> **An Agentic RAG system with a self-rebuilding LLM Wiki navigation layer, MCP integration, and a Next.js GUI.**
+> **SGCP-RAG: a self-correcting, SNI-guided search graph, with MCP integration and a Next.js GUI.**
 
-`SGCP-RAG` is a full-stack RAG (Retrieval-Augmented Generation) system built on PostgreSQL + `pgvector`. You upload documents into collections; they are automatically parsed, chunked, embedded, and searchable. On top of that, a **self-rebuilding LLM Wiki** maintains a markdown knowledge base that acts as a navigation layer for an **Agentic / Adaptive RAG** search graph. Everything is exposed simultaneously via a Next.js UI, a REST API, and an MCP (Model Context Protocol) server.
+`SGCP-RAG` (**S**ummary-**G**uided **C**hunk **P**romotion RAG) is a full-stack RAG (Retrieval-Augmented Generation) system built on PostgreSQL + `pgvector`. You upload documents into collections; they are automatically parsed, chunked, embedded, and searchable. Every collection also gets a **self-rebuilding SNI** (Summary Navigation Index) — a markdown knowledge base — and queries run through the SGCP-RAG search graph: a self-correcting retrieve → grade → generate → grade loop that uses the SNI to promote real source chunks ahead of grading, rather than answering from the SNI's summaries directly. Everything is exposed simultaneously via a Next.js UI, a REST API, and an MCP (Model Context Protocol) server.
 
 This project is a fork of [`teddynote-lab/langconnect-client`](https://github.com/teddynote-lab/langconnect-client) (itself based on LangChain AI's [`langconnect`](https://github.com/langchain-ai/langconnect)) extended with:
 
-- a LangGraph-based **Agentic RAG** self-correcting search graph,
-- a **per-collection LLM Wiki** inspired by [Karpathy's gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
+- **SGCP-RAG** — a LangGraph-based, SNI-guided self-correcting search graph,
+- a **per-collection SNI** inspired by [Karpathy's gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), which SGCP-RAG builds and reads,
 - **Ollama-first LLM routing** with graceful OpenAI/Google fallback,
 - domain-specific **PubMedBERT** embeddings.
 
@@ -16,15 +16,15 @@ This project is a fork of [`teddynote-lab/langconnect-client`](https://github.co
 ## Table of Contents
 
 1. [Overview — What this project does](#1-overview--what-this-project-does)
-2. [Agentic RAG and Adaptive RAG](#2-agentic-rag-and-adaptive-rag)
-3. [LLM Wiki — Karpathy's idea, adapted for RAG](#3-llm-wiki--karpathys-idea-adapted-for-rag)
+2. [SGCP-RAG — the self-correcting search graph](#2-sgcp-rag--the-self-correcting-search-graph)
+3. [The SNI — Karpathy's idea, adapted for SGCP-RAG](#3-the-sni--karpathys-idea-adapted-for-sgcp-rag)
 4. [Architecture](#4-architecture)
 5. [Quick Start](#5-quick-start)
 6. [Usage in Detail](#6-usage-in-detail)
    - [6.1 Using the Web UI](#61-using-the-web-ui)
    - [6.2 Using the REST API](#62-using-the-rest-api)
-   - [6.3 The Agentic Search API](#63-the-agentic-search-api)
-   - [6.4 The LLM Wiki API](#64-the-llm-wiki-api)
+   - [6.3 The SGCP-RAG Search API](#63-the-sgcp-rag-search-api)
+   - [6.4 The SNI API](#64-the-sni-api)
    - [6.5 Using the MCP server](#65-using-the-mcp-server)
 7. [Environment variables](#7-environment-variables)
 8. [Testing](#8-testing)
@@ -39,18 +39,20 @@ This project is a fork of [`teddynote-lab/langconnect-client`](https://github.co
 | Capability | What it does |
 |------------|--------------|
 | **RAG infrastructure** | Upload PDF / DOCX / HTML / TXT / MD → parse with PyMuPDF4LLM → chunk → embed with PubMedBERT (768-dim) → store in PostgreSQL `pgvector` → search via semantic / keyword / hybrid. |
-| **Agentic RAG search** | A LangGraph `StateGraph` runs a self-correcting loop: retrieve → grade documents → generate → grade for hallucination & answer quality → rewrite the query and retry on failure. |
-| **LLM Wiki metadata layer** | An LLM automatically summarises and categorises every document in a collection into markdown pages (`llm_wiki/collections/{collection_id}/`) plus a runtime JSON pack. Rebuilds happen automatically on upload/delete. Agentic search optionally uses it as a navigation hint. |
+| **SGCP-RAG search** | A LangGraph `StateGraph` runs a self-correcting loop: SNI-guided chunk promotion → retrieve → grade documents → generate → grade for hallucination & answer quality → rewrite the query and retry on failure. |
+| **SNI metadata layer** | An LLM automatically summarises and categorises every document in a collection into markdown pages (`llm_wiki/collections/{collection_id}/`) plus a runtime JSON pack. Rebuilds happen automatically on upload/delete. This is the artifact SGCP-RAG promotes chunks from (togglable via `use_wiki_context`). |
+
+`SGCP-RAG` names the whole method: **S**ummary-**G**uided **C**hunk **P**romotion RAG. An SNI page's summary points the search graph back to the *real* source chunks it summarises, instead of letting the summary itself answer the question (`SNI_LLM_*` env vars in [§7](#7-environment-variables) configure the SNI rebuild LLM). See [§2.2](#22-sgcp-rag-in-this-project) for the full execution-flow diagram and [§3.3](#33-the-key-design-decision--sni-is-navigation-not-evidence) for why this distinction matters.
 
 Three independent entry points access the same backend:
 
-- **Next.js Web UI** — `http://localhost:3005`
+- **Next.js Web UI** — `http://localhost:3005` (Docker) / `http://localhost:3893` (local `npm run dev`, see [§5](#5-quick-start))
 - **REST API** — `http://localhost:8888` (Swagger UI at `/docs`)
 - **MCP server** — `mcpserver/mcp_server.py` (stdio) or `mcpserver/mcp_sse_server.py` (SSE on port 8765)
 
 ---
 
-## 2. Agentic RAG and Adaptive RAG
+## 2. SGCP-RAG — the self-correcting search graph
 
 ### 2.1 The problem with naive RAG
 
@@ -65,64 +67,85 @@ This has two well-known weaknesses:
 - Retrieved documents that are **irrelevant to the question** are still fed to the generator, degrading answer quality.
 - If the LLM **hallucinates content not present in the documents**, there is no detection mechanism.
 
-### 2.2 The Adaptive RAG idea
+### 2.2 SGCP-RAG in this project
 
-Adaptive RAG (the [LangChain `07-LangGraph-Adaptive-RAG`](https://github.com/teddynote-lab/langchain-kr) notebook family) addresses this by introducing **conditional routing and self-grading loops** into the graph:
+SGCP-RAG addresses both weaknesses with a self-correcting LangGraph `StateGraph`: conditional routing and self-grading loops decide whether retrieved documents are relevant and whether the generated answer is grounded in them, rewriting the query and retrying retrieval whenever either check fails. On top of that self-correcting loop — **simplified for a single-vectorstore environment** and **hardened with production safety guards** — SGCP-RAG folds in SNI-guided chunk promotion ahead of grading. The combination — SNI construction, SGCP promotion, and the self-correcting retrieve/grade/generate/grade/rewrite loop — is what this project calls **SGCP-RAG**. The implementation lives in `langconnect/agent/`.
 
+```mermaid
+flowchart TD
+    START(["START"])
+
+    INPUT[/"Inputs<br/>(<i>User question</i>)"/]:::io_white
+
+    sni[("<b>Summary Navigation<br/>Index (SNI)</b>")]
+
+    SGCP["<b>Summary-Guided Chunk Promotion (SGCP)</b><br/>follow source link<br/>promote raw chunks"]
+
+    RETRIEVE["<b>Retrieve Context</b><br/>baseline + <br/>promoted chunks"]
+
+    GRADE_DOCS{"<b>🤖 Relevance<br/>Check</b><br/>LLM scores<br/>document relevance"}
+
+    REWRITE["<b>🤖 Rewrite Query</b><br/>LLM optimizes query for retrieval"]
+
+    GENERATE["<b>🤖 Generate</b><br/>LLM generates<br/>answer from context"]
+
+    GRADE_GEN{"<b>🤖 Grade<br/>Generation</b><br/>hallucination +<br/>quality check"}
+
+    MAXCHECK_GRADE{"<b>Check</b><br/>rewrite_count<br/>< max_rewrites?"}
+    MAXCHECK_GEN{"<b>Check</b><br/>rewrite_count<br/>< max_rewrites?"}
+
+    FORCED_GEN["<b>Forced Generation</b><br/>no relevant docs, generate anyway"]
+
+    FORCED_END["<b>Forced End</b><br/>quality still insufficient"]
+
+    END_OK(["END<br/>Success"])
+    END_FORCED(["END<br/>Forced termination"])
+
+    START --> INPUT
+    INPUT --> SGCP
+    sni -->|"guides"| SGCP
+    INPUT --> RETRIEVE
+    SGCP -->|"promoted chunks"| RETRIEVE
+    RETRIEVE --> GRADE_DOCS
+
+    GRADE_DOCS -->|"relevant_documents > 0"| GENERATE
+    GRADE_DOCS -->|"relevant_documents == 0"| MAXCHECK_GRADE
+
+    MAXCHECK_GRADE -->|"Yes<br/>(retry possible)"| REWRITE
+    MAXCHECK_GRADE -->|"No<br/>(limit reached)"| FORCED_GEN
+
+    FORCED_GEN --> GENERATE
+    GENERATE --> GRADE_GEN
+
+    GRADE_GEN -->|"PASSED<br/>(Both checks passed)"| END_OK
+
+    GRADE_GEN -->|"FAILED<br/>(Check failed)"| MAXCHECK_GEN
+
+    MAXCHECK_GEN -->|"Yes<br/>(retry possible)"| REWRITE
+    MAXCHECK_GEN -->|"No<br/>(limit reached)"| FORCED_END
+    FORCED_END --> END_FORCED
+
+    REWRITE -.->|"Loop back<br/>(re-run retrieve)"| RETRIEVE
+
+    classDef module fill:#f9fafb,stroke:#666666,stroke-width:1.5px,rx:12,ry:12,color:#1f2933
+    classDef decision fill:#e3f2fd,stroke:#0000FF,stroke-width:1.5px,rx:12,ry:12,color:#1f2933
+    classDef llm fill:#e3f2fd,stroke:#0000FF,stroke-width:1.5px,rx:12,ry:12,color:#1f2933
+    classDef tool fill:#f3e5f5,stroke:#800080,stroke-width:1.2px,rx:10,ry:10,color:#1f2933
+    classDef terminal fill:#263238,color:#ffffff,stroke:#263238,stroke-width:2px,rx:15,ry:15
+    classDef check_decision fill:#fff8e1,stroke:#C9A227,stroke-width:1.8px,color:#1f2933
+    classDef io_white fill:#ffffff,stroke:#111111,stroke-width:2px,rx:14,ry:14,color:#1f2933
+
+    class START,END_OK,END_FORCED terminal
+    class REWRITE,GENERATE llm
+    class GRADE_DOCS,GRADE_GEN decision
+    class RETRIEVE,FORCED_GEN,FORCED_END,sni module
+    class SGCP tool
+    class MAXCHECK_GRADE,MAXCHECK_GEN check_decision
 ```
-START → route_question → retrieve → grade_documents
-                                      ├─ relevant → generate → hallucination_check
-                                      │                          ├─ pass → END
-                                      │                          └─ fail → transform_query → retrieve
-                                      └─ not relevant → transform_query → retrieve
-```
 
-Three core ideas:
+Loop guard: if `rewrite_count >= max_rewrites`, force-terminate (generate from whatever was retrieved, or end with a "forced termination" status if quality is still insufficient).
 
-1. **Document relevance grading** — each retrieved chunk is shown to an LLM with a binary `yes/no` prompt; only the passing chunks are handed to the generator.
-2. **Hallucination grading** — after generation, the LLM judges whether the answer is *grounded in the retrieved documents*.
-3. **Query rewriting** — when either check fails, the question is rewritten to be more retrieval-friendly and the loop restarts from `retrieve`.
-
-### 2.3 The Agentic RAG in this project
-
-This project adopts the Adaptive RAG self-correcting skeleton, **simplifies it for a single-vectorstore environment**, and **adds production safety guards**. The implementation lives in `langconnect/agent/`.
-
-```
-                    ┌──────────┐
-                    │  START   │
-                    └────┬─────┘
-                         ▼
-                  ┌─────────────┐
-                  │  retrieve   │  ← Collection.search() (hybrid by default)
-                  └──────┬──────┘   + (optional) LLM Wiki source_ref promotion
-                         ▼
-                  ┌─────────────────┐
-                  │ grade_documents │  ← per-document LLM yes/no
-                  └────────┬────────┘
-                           │
-                ┌──────────┴───────────┐
-        relevant > 0              relevant == 0
-                │                       │
-                ▼                       ▼
-         ┌──────────┐          ┌──────────────┐
-         │ generate │          │rewrite_query │  rewrite_count++
-         └────┬─────┘          └──────┬───────┘
-              ▼                       │
-       ┌──────────────────┐           │
-       │ grade_generation │           │
-       │  ① hallucination │           │
-       │  ② answer quality│           │
-       └─────┬────────┬───┘           │
-             │        │               │
-          PASSED   FAILED             │
-             │        └───────────────┤
-             ▼                        │
-            END                       └───► retrieve (loop)
-
-Loop guard: if rewrite_count >= max_rewrites, force-terminate.
-```
-
-Differences from the original Adaptive RAG notebook:
+Differences from the original Adaptive RAG notebook ([LangChain `07-LangGraph-Adaptive-RAG`](https://github.com/teddynote-lab/langchain-kr)):
 
 | Change | Why |
 |--------|-----|
@@ -131,12 +154,13 @@ Differences from the original Adaptive RAG notebook:
 | Separated `relevant_documents` from `documents` in state. | The notebook overwrites `documents` after filtering; we keep both so the trace can show what was filtered out. |
 | Bound the LLM with `functools.partial(node, llm=llm)`. | Avoids the LangGraph state-serialisation issue you get from stuffing an LLM instance into state, and lets tests inject mocks trivially. |
 | Reused the existing `Collection.search()` instead of a new retriever tool. | 100% reuse of the existing hybrid-search infrastructure — zero retrieval-code duplication. |
+| Added the SGCP promotion step ahead of grading. | Lets a question whose vocabulary doesn't match the source text still retrieve the right chunk, via the SNI's concept-level summary. |
 
 > For the deeper mapping see `docs/design-decisions-agentic-rag.md`; for the full graph see `docs/agenticRAG_architecture.md`.
 
 ---
 
-## 3. LLM Wiki — Karpathy's idea, adapted for RAG
+## 3. The SNI — Karpathy's idea, adapted for SGCP-RAG
 
 ### 3.1 The original idea
 
@@ -148,7 +172,7 @@ The appeal is that (1) the artefact is plain markdown and stays human-inspectabl
 
 ### 3.2 How this project applies the idea
 
-We bring Karpathy's wiki idea down to the **RAG collection** level — one wiki per collection.
+We bring Karpathy's wiki idea down to the **RAG collection** level as the SNI — one SNI per collection.
 
 ```
 llm_wiki/
@@ -165,43 +189,27 @@ llm_wiki/
 
 **Automatic rebuild triggers:**
 
-- Right after a successful document upload (`POST /collections/{id}/documents`).
+- Right after a successful document upload (`POST /collections/{id}/documents`), unless the caller explicitly opts out (see `rebuild_wiki` in [§6.2](#62-using-the-rest-api)).
 - Right after a document deletion (`DELETE /collections/{id}/documents/...`).
 - On explicit demand (`POST /collections/{id}/llm-wiki/rebuild` or the MCP tool `rebuild_llm_wiki`).
 
-### 3.3 The key design decision — wiki is *navigation*, not *evidence*
+### 3.3 The key design decision — SNI is *navigation*, not *evidence*
 
-Karpathy's original wiki is injected directly into the prompt and the LLM treats it as ground truth. Doing that naively inside a RAG system would be a disaster: the wiki's *summaries* would silently become the evidence backing each answer, and your citation / hallucination grading would no longer reflect reality. We deliberately rule that out (`docs/llm-wiki-context.md`):
+Karpathy's original wiki is injected directly into the prompt and the LLM treats it as ground truth. Doing that naively inside a RAG system would be a disaster: the SNI's *summaries* would silently become the evidence backing each answer, and your citation / hallucination grading would no longer reflect reality. We deliberately rule that out (`docs/llm-wiki-context.md`):
 
 > *"LLM Wiki context is an optional navigation layer. It is not a source of truth, not citation evidence, and not a raw generation prompt channel."*
 
-Instead, we only trust the wiki page's `source_refs` — coordinates back to real chunks.
-
-```
-By default, when `use_wiki_context` is not set or is `true`:
-
-question ─┬─► wiki page selection  (up to 3 pages)
-          │      └─► source_refs (file_id + chunk_id), capped at 8
-          │              └─► re-fetch the real chunks from this collection (best-effort)
-          │                      └─► append to retrieve() results
-          │                          (dedup by chunk_id; normal retrieval wins collisions)
-          ▼
-   retrieve → grade_documents → generate → grade_generation → END
-
-⚠️  generate() and the hallucination grader only see promoted *real* chunks.
-    Wiki page titles / summaries / keywords are returned as response metadata only —
-    they never enter the evidence set.
-```
+Instead, we only trust the SNI page's `source_refs` — coordinates back to real chunks. This is the **SGCP** promotion step within the **SGCP-RAG** execution graph shown in [§2.2](#22-sgcp-rag-in-this-project): SNI page selection promotes `source_refs` (capped at 8) into the same `retrieve()` result set used by grading, deduplicated by `chunk_id`. `generate()` and the hallucination grader only ever see promoted *real* chunks — SNI page titles/summaries/keywords are returned as response metadata only and never enter the evidence set.
 
 The net effect:
 
-- The wiki acts as a **human-readable index** describing what the collection covers.
+- The SNI acts as a **human-readable index** describing what the collection covers.
 - It simultaneously serves as a **retrieval-boost signal**: even when a question uses different vocabulary than the source text, the concept page can pull in the right chunk.
 - The hallucination grader always operates on a consistent set of raw chunks.
 
 ### 3.4 Page schema (summary)
 
-Each wiki page (`sources/*.md`, `concepts/*.md`) carries a typed YAML frontmatter:
+Each SNI page (`sources/*.md`, `concepts/*.md`) carries a typed YAML frontmatter:
 
 ```markdown
 ---
@@ -222,6 +230,13 @@ confidence: medium               # low | medium | high
 
 The runtime JSON pack (`llm_wiki/collections/{id}.json`) is a compressed index built from those frontmatters so `agentic_search` can do fast page selection without parsing markdown.
 
+### 3.5 Document quality checks on upload
+
+Two additional checks run as part of the upload pipeline, independent of embedding/indexing:
+
+- **Paper Card extraction** (`langconnect/services/paper_cards.py`, `langconnect/models/paper_card.py`) — a heuristic check that an uploaded document actually parsed into a well-formed paper: a real title, an abstract of reasonable length, an author block. Failures don't block the upload; they surface as `paper_card_warnings` in the upload response so you know a file may need re-parsing or manual cleanup.
+- **Markdown conversion quality** (`langconnect/services/pdf_markdown_quality.py`, `langconnect/parsers/pdf_markdown_cleanup.py`) — scores the PyMuPDF4LLM PDF→Markdown conversion itself (headings, tables, images, links detected; whether an Abstract/References section was found) to flag conversions that likely lost structure.
+
 ---
 
 ## 4. Architecture
@@ -238,13 +253,13 @@ graph TB
         API["FastAPI<br/>localhost:8888"]
         MCPS["mcp_server.py<br/>(stdio)"]
         MCPSSE["mcp_sse_server.py<br/>(SSE :8765)"]
-        AGENT["Agentic RAG<br/>(langconnect/agent/)"]
-        WIKI["LLM Wiki service<br/>(langconnect/services/llm_wiki.py)"]
+        AGENT["SGCP-RAG graph<br/>(langconnect/agent/)"]
+        WIKI["SNI service<br/>(langconnect/services/llm_wiki.py)"]
     end
 
     subgraph "Data"
         PG["PostgreSQL 16<br/>+ pgvector"]
-        FS["llm_wiki/ filesystem"]
+        FS["SNI filesystem<br/>(llm_wiki/)"]
     end
 
     subgraph "External"
@@ -275,12 +290,12 @@ graph TB
 |-----------|----------|
 | FastAPI server | `langconnect/server.py` |
 | Collections / Documents API | `langconnect/api/collections.py`, `langconnect/api/documents.py` |
-| Agentic Search API | `langconnect/api/agentic.py` |
-| LLM Wiki API | `langconnect/api/llm_wiki.py` |
-| Agentic RAG graph | `langconnect/agent/{state,nodes,graders,prompts,graph,wiki_context}.py` |
-| LLM Wiki rebuild service | `langconnect/services/llm_wiki.py` |
-| Document parsing & chunking | `langconnect/services/document_processor.py`, `langconnect/parsers/` |
-| MCP stdio server | `mcpserver/mcp_server.py` |
+| SGCP-RAG Search API | `langconnect/api/agentic.py` |
+| SNI API | `langconnect/api/llm_wiki.py` |
+| SGCP-RAG graph | `langconnect/agent/{state,nodes,graders,prompts,graph,wiki_context,query_expansion,config}.py` |
+| SNI rebuild service | `langconnect/services/llm_wiki.py` |
+| Document parsing, chunking & quality checks | `langconnect/services/document_processor.py`, `langconnect/services/paper_cards.py`, `langconnect/services/pdf_markdown_quality.py`, `langconnect/parsers/` |
+| MCP stdio server | `mcpserver/mcp_server.py`, `mcpserver/base_mcp_server.py` |
 | MCP SSE server | `mcpserver/mcp_sse_server.py` |
 | Next.js frontend | `next-connect-ui/` |
 
@@ -303,19 +318,25 @@ For full diagrams and sequence flows, see `docs/architecture-overview.md`, `docs
 cp .env.example .env
 ```
 
-At minimum, fill in:
+At minimum, fill in `OPENAI_API_KEY`. The rest of `.env.example` already has working local-dev defaults:
 
 ```dotenv
 # Embeddings (PubMedBERT runs locally; OPENAI_API_KEY is only needed for OpenAI fallback)
 OPENAI_API_KEY=sk-...
 
-# Ollama (preferred when available)
+# Query expansion: tries Ollama first, falls back to OpenAI
 QUERY_EXPANSION_LLM_BASE_URL=http://localhost:11434
+QUERY_EXPANSION_LLM_PROVIDER=auto
 QUERY_EXPANSION_LLM_MODEL=qwen3.5:9b
-AGENT_LLM_BASE_URL=http://localhost:11434
-AGENT_LLM_PROVIDER=auto              # auto = try Ollama first, fall back to OpenAI
+QUERY_EXPANSION_OPENAI_MODEL=gpt-5.4-mini
+
+# SGCP-RAG: tries Ollama first, falls back to OpenAI
+AGENT_LLM_BASE_URL=http://localhost:6000
+AGENT_LLM_PROVIDER=auto
 AGENT_LLM_MODEL=qwen3.5:122b
 AGENT_LLM_OPENAI_MODEL=gpt-5.4
+
+# SNI rebuild: tries Ollama first, falls back to OpenAI
 SNI_LLM_PROVIDER=auto
 SNI_LLM_BASE_URL=http://host.docker.internal:11434
 SNI_LLM_MODEL=qwen3.5:397b-cloud
@@ -330,6 +351,8 @@ POSTGRES_DB=llmwiki_rag_db
 # Next.js
 NEXTAUTH_SECRET=change-me
 ```
+
+> `.env.example` does not set a shared `OLLAMA_BASE_URL` — each subsystem (`AGENT_LLM_BASE_URL`, `QUERY_EXPANSION_LLM_BASE_URL`, `SNI_LLM_BASE_URL`) points at Ollama independently, since they may run against different hosts/tunnels. Set `OLLAMA_BASE_URL` yourself only if you want one shared fallback endpoint across all three (see [§7](#7-environment-variables)).
 
 A complete variable reference is in [§7](#7-environment-variables).
 
@@ -353,6 +376,13 @@ Once up:
 | Health check | http://localhost:8888/health |
 | Postgres | localhost:5432 |
 
+For local (non-Docker) frontend development instead:
+
+```bash
+cd next-connect-ui
+npm run dev     # http://localhost:3893
+```
+
 ### 5.4 Generate the MCP config
 
 ```bash
@@ -370,10 +400,10 @@ This writes `mcpserver/mcp_config.json`. Paste its contents into Claude Desktop 
 1. Open `http://localhost:3005`.
 2. **Collections** page → create a new collection (name + optional metadata).
 3. Open the collection → **Documents** tab → drag-and-drop PDF/MD/DOCX/HTML/TXT files.
-   - The LLM Wiki rebuild starts automatically after the upload commits.
-   - If embedding succeeds but wiki rebuild fails, the API returns HTTP 500 with `documents_indexed_wiki_rebuild_failed`. **The vectors stay committed** — you only need to retry the rebuild (see §6.4).
+   - The SNI rebuild starts automatically after the upload commits.
+   - If embedding succeeds but the SNI rebuild fails, the API returns HTTP 500 with `documents_indexed_wiki_rebuild_failed`. **The vectors stay committed** — you only need to retry the rebuild (see §6.4).
 4. **Search** page → try `semantic` / `keyword` / `hybrid` search.
-5. **LLM Wiki Viewer** → browse the auto-generated `sources/` and `concepts/` markdown pages.
+5. **SNI** page (labeled `SNI` in the nav) → browse the auto-generated `sources/` and `concepts/` markdown pages.
 
 ### 6.2 Using the REST API
 
@@ -385,10 +415,15 @@ curl -X POST http://localhost:8888/collections \
   -H "Content-Type: application/json" \
   -d '{"name": "papers", "metadata": {"topic": "spatial-transcriptomics"}}'
 
-# Upload a document (multipart)
+# Upload a document (multipart) — rebuilds the SNI immediately (default)
 curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/documents \
   -F "files=@./paper.pdf" \
   -F 'metadata={"source":"paper.pdf"}'
+
+# Batch upload — defer the SNI rebuild until the last call
+curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/documents \
+  -F "files=@./paper2.pdf" \
+  -F "rebuild_wiki=false"
 
 # Plain (non-agentic) search — hybrid
 curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/documents/search \
@@ -398,7 +433,15 @@ curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/documents/search 
        "search_type":"hybrid"}'
 ```
 
-### 6.3 The Agentic Search API
+`rebuild_wiki` (form field, default `true`) controls whether the upload triggers an immediate SNI rebuild. When you're uploading many files in a loop, set `rebuild_wiki=false` on every call but the last to avoid rebuilding the SNI once per file — the response instead returns:
+
+```json
+{"llm_wiki": {"skipped": true, "recovery": "Call rebuild_llm_wiki(collection_id) after all uploads finish."}}
+```
+
+then call the rebuild endpoint ([§6.4](#64-the-sni-api)) once, after the batch finishes.
+
+### 6.3 The SGCP-RAG Search API
 
 `POST /collections/{collection_id}/agentic-search`
 
@@ -453,12 +496,12 @@ Request parameters:
 | `search_limit` | `5` | Number of chunks to retrieve per round |
 | `search_filter` | `null` | Metadata filter (JSON object) |
 | `max_rewrites` | `3` | Maximum number of query rewrites (loop guard) |
-| `use_wiki_context` | `true` | Use existing LLM Wiki navigation context when available; set `false` to disable |
+| `use_wiki_context` | `true` | Use existing SNI navigation context (SGCP promotion) when available; set `false` to disable |
 | `llm_provider` | env default | `auto` / `ollama` / `openai` / `google` |
 | `llm_model` | env default | Model name override |
 | `llm_temperature` | env default | Temperature override |
 
-### 6.4 The LLM Wiki API
+### 6.4 The SNI API
 
 ```bash
 # Index (sources + concepts list)
@@ -468,13 +511,14 @@ curl http://localhost:8888/collections/<COLLECTION_ID>/llm-wiki
 curl http://localhost:8888/collections/<COLLECTION_ID>/llm-wiki/sources/<page-slug>
 curl http://localhost:8888/collections/<COLLECTION_ID>/llm-wiki/concepts/<page-slug>
 
-# Force a rebuild (e.g. to recover from a failed auto-rebuild)
+# Force a rebuild (e.g. to recover from a failed auto-rebuild, or after a
+# batch upload run with rebuild_wiki=false)
 curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/llm-wiki/rebuild \
   -H "Content-Type: application/json" \
   -d '{"llm_provider":"ollama","llm_model":"qwen3.5:122b","llm_temperature":0}'
 ```
 
-Rebuilds are transactional: markdown + manifest artefacts are staged first → the runtime pack is schema-validated → finally `llm_wiki/collections/{collection_id}.json` is swapped in. If any step fails, **the previous wiki remains visible to `agentic_search`.**
+Rebuilds are transactional: markdown + manifest artefacts are staged first → the runtime pack is schema-validated → finally `llm_wiki/collections/{collection_id}.json` is swapped in. If any step fails, **the previous SNI remains visible to `agentic_search`.**
 
 ### 6.5 Using the MCP server
 
@@ -494,8 +538,7 @@ Example `mcp_config.json` to paste into Claude Desktop's MCP settings:
       "command": "/path/to/uv",
       "args": ["run", "python", "/abs/path/to/mcpserver/mcp_server.py"],
       "env": {
-        "API_BASE_URL": "http://localhost:8888",
-        "OLLAMA_BASE_URL": "http://localhost:11434"
+        "API_BASE_URL": "http://localhost:8888"
       }
     }
   }
@@ -523,19 +566,19 @@ npx @modelcontextprotocol/inspector
 #### 6.5.3 Available MCP tools
 
 | Tool | Description |
-|------|-------------|
+|------|--------------|
 | `list_collections` | List every collection |
 | `get_collection` | Inspect one collection |
 | `create_collection` | Create a new collection |
 | `delete_collection` | Delete a collection |
 | `list_documents` | List documents in a collection |
-| `add_documents` | Add text documents |
-| `add_documents_from_files` | Upload files from the filesystem (stdio server only) |
+| `add_documents` | Add text documents. Accepts `rebuild_wiki` (default `true`) — set `false` when adding several documents in a row and call `rebuild_llm_wiki` once at the end. |
+| `add_documents_from_files` | Upload files directly from the filesystem (stdio server only). Same `rebuild_wiki` option as `add_documents`. |
 | `delete_document` | Delete a document |
 | `search_documents` | Plain search (semantic / keyword / hybrid) |
 | `multi_query` | Expand one question into multiple sub-queries via an LLM |
 | `agentic_search` | The LangGraph self-correcting RAG search |
-| `rebuild_llm_wiki` | Manually rebuild a collection's wiki |
+| `rebuild_llm_wiki` | Manually rebuild a collection's SNI |
 | `get_health_status` | API health check |
 
 #### 6.5.4 Suggested RAG prompt (Claude Desktop)
@@ -577,8 +620,8 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `ALLOW_ORIGINS` | `["*"]` | ✗ | CORS allow-list (JSON array) |
 | `IS_TESTING` | `false` | ✗ | Bypass-auth mode |
 | `SSE_PORT` | `8765` | ✗ | MCP SSE server port |
-| `OLLAMA_BASE_URL` | `http://localhost:5000` | ✗ | Shared Ollama fallback endpoint |
-| `AGENT_LLM_BASE_URL` | (= `OLLAMA_BASE_URL`) | ✗ | Dedicated Ollama endpoint for Agentic RAG |
+| `OLLAMA_BASE_URL` | `http://localhost:5000` | ✗ | Shared Ollama fallback endpoint — not set in `.env.example`; only needed if you want one endpoint shared across Agent/Query-Expansion/SNI instead of setting each `*_LLM_BASE_URL` independently |
+| `AGENT_LLM_BASE_URL` | (= `OLLAMA_BASE_URL`) | ✗ | Dedicated Ollama endpoint for SGCP-RAG |
 | `QUERY_EXPANSION_LLM_BASE_URL` | (= `OLLAMA_BASE_URL`) | ✗ | Dedicated Ollama endpoint for query expansion |
 | `AGENT_LLM_PROVIDER` | `auto` | ✗ | `auto` / `ollama` / `openai` / `google` |
 | `AGENT_LLM_MODEL` | `qwen3.5:122b` | ✗ | Ollama model name |
@@ -589,11 +632,11 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `SNI_LLM_MODEL` | (= shared agent LLM factory) | ✗ | SNI rebuild model name |
 | `SNI_LLM_OPENAI_MODEL` | `gpt-5.4` | ✗ | OpenAI fallback model when `SNI_LLM_PROVIDER=auto` |
 | `SNI_LLM_TEMPERATURE` | (= shared agent LLM factory) | ✗ | SNI rebuild temperature |
-| `AGENT_MAX_REWRITES` | `3` | ✗ | Agentic loop guard |
+| `AGENT_MAX_REWRITES` | `3` | ✗ | SGCP-RAG loop guard |
 | `QUERY_EXPANSION_LLM_PROVIDER` | `auto` | ✗ |  |
 | `QUERY_EXPANSION_LLM_MODEL` | `qwen3.5:35b` | ✗ |  |
 | `QUERY_EXPANSION_OPENAI_MODEL` | `gpt-5.4` | ✗ |  |
-| `LANGCONNECT_WIKI_CONTEXT_DIR` | `llm_wiki/collections` | ✗ | Override directory for the runtime wiki pack |
+| `LANGCONNECT_WIKI_CONTEXT_DIR` | `llm_wiki/collections` | ✗ | Override directory for the runtime SNI pack |
 
 > When `AGENT_LLM_PROVIDER=auto`, the agent first tries Ollama at `AGENT_LLM_BASE_URL` (or `OLLAMA_BASE_URL`), and on failure does **one** fallback to `AGENT_LLM_OPENAI_MODEL`. If you explicitly set `AGENT_LLM_PROVIDER=ollama`, no fallback happens — failures are propagated as-is.
 
@@ -613,7 +656,7 @@ make test TEST_FILE=tests/unit_tests/test_documents_api.py
 # pytest directly
 uv run pytest tests/unit_tests -v
 
-# Agentic RAG only
+# SGCP-RAG only
 uv run pytest --confcutdir=tests/unit_tests \
   tests/unit_tests/test_agent_config.py \
   tests/unit_tests/test_agentic_search.py -v
@@ -633,12 +676,12 @@ npm run test:watch
 
 MIT — see [LICENSE](./LICENSE).
 
-This project is a fork of [`teddynote-lab/langconnect-client`](https://github.com/teddynote-lab/langconnect-client) (in turn based on LangChain AI's [`langconnect`](https://github.com/langchain-ai/langconnect)). The Agentic RAG graph, the LLM Wiki layer, the Ollama-first LLM routing, and the PubMedBERT embedding integration are additions in this fork.
+This project is a fork of [`teddynote-lab/langconnect-client`](https://github.com/teddynote-lab/langconnect-client) (in turn based on LangChain AI's [`langconnect`](https://github.com/langchain-ai/langconnect)). SGCP-RAG (the self-correcting search graph and SNI layer), the Ollama-first LLM routing, and the PubMedBERT embedding integration are additions in this fork.
 
 ### References
 
 - Karpathy, A. ["LLM Wiki" gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
-- LangGraph Adaptive / Agentic RAG notebooks — see the reference table in `docs/design-decisions-agentic-rag.md` §7.
+- LangGraph Adaptive RAG notebooks (prior art for the self-correcting loop) — see the reference table in `docs/design-decisions-agentic-rag.md` §7.
 - PubMedBERT: Gu Y. et al. *Domain-specific language model pretraining for biomedical NLP* (2021).
 - PyMuPDF4LLM: https://github.com/pymupdf/PyMuPDF4llm
 - Internal design docs:
