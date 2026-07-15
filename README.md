@@ -325,15 +325,15 @@ At minimum, fill in `OPENAI_API_KEY`. The rest of `.env.example` already has wor
 OPENAI_API_KEY=sk-...
 
 # Query expansion: tries Ollama first, falls back to OpenAI
-QUERY_EXPANSION_LLM_BASE_URL=http://localhost:11434
+QUERY_EXPANSION_LLM_BASE_URL=http://host.docker.internal:11434
 QUERY_EXPANSION_LLM_PROVIDER=auto
 QUERY_EXPANSION_LLM_MODEL=qwen3.5:9b
 QUERY_EXPANSION_OPENAI_MODEL=gpt-5.4-mini
 
 # SGCP-RAG: tries Ollama first, falls back to OpenAI
-AGENT_LLM_BASE_URL=http://localhost:6000
+AGENT_LLM_BASE_URL=http://host.docker.internal:11434
 AGENT_LLM_PROVIDER=auto
-AGENT_LLM_MODEL=qwen3.5:122b
+AGENT_LLM_MODEL=qwen3.5:397b-cloud
 AGENT_LLM_OPENAI_MODEL=gpt-5.4
 
 # SNI rebuild: tries Ollama first, falls back to OpenAI
@@ -349,10 +349,14 @@ POSTGRES_PASSWORD=llmwiki
 POSTGRES_DB=llmwiki_rag_db
 
 # Next.js
-NEXTAUTH_SECRET=change-me
+NEXTAUTH_SECRET=langconnect-next-server-secret
 ```
 
+> If you want to use `qwen3.5:397b-cloud`, see <https://ollama.com/library/qwen3.5:397b-cloud>.
+
 > `.env.example` does not set a shared `OLLAMA_BASE_URL` — each subsystem (`AGENT_LLM_BASE_URL`, `QUERY_EXPANSION_LLM_BASE_URL`, `SNI_LLM_BASE_URL`) points at Ollama independently, since they may run against different hosts/tunnels. Set `OLLAMA_BASE_URL` yourself only if you want one shared fallback endpoint across all three (see [§7](#7-environment-variables)).
+
+> `NEXTAUTH_SECRET`'s default value is fine for localhost-only testing, but it's a public value checked into `.env.example` — rotate it to a random secret (e.g. `openssl rand -base64 32`) before exposing the instance beyond localhost, since anyone who knows it can forge session tokens.
 
 A complete variable reference is in [§7](#7-environment-variables).
 
@@ -615,7 +619,7 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `POSTGRES_DB` | `llmwiki_rag_db` | ✗ |  |
 | `API_BASE_URL` | `http://localhost:8888` | ✗ | Used by the MCP server to reach the API |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8888` | ✓ | Used by the browser to reach the API |
-| `NEXTAUTH_SECRET` | — | ✓ | NextAuth JWT signing key |
+| `NEXTAUTH_SECRET` | `langconnect-next-server-secret` | ✓ | NextAuth JWT signing key — change before exposing beyond localhost |
 | `NEXTAUTH_URL` | `http://localhost:3005` | ✓ |  |
 | `ALLOW_ORIGINS` | `["*"]` | ✗ | CORS allow-list (JSON array) |
 | `IS_TESTING` | `false` | ✗ | Bypass-auth mode |
