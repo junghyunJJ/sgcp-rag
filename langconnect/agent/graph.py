@@ -36,7 +36,7 @@ def _route_after_grading(state: AgentState) -> str:
         return "generate"
     # No relevant docs — rewrite if under the limit
     rewrite_count = state.get("rewrite_count", 0)
-    max_rewrites = state.get("max_rewrites", 3)
+    max_rewrites = state.get("max_rewrites", 2)
     if rewrite_count >= max_rewrites:
         logger.warning("Max rewrites reached with no relevant docs. Ending no-context.")
         return "no_context"
@@ -53,7 +53,7 @@ def _route_after_generation_check(state: AgentState) -> str:
 
     # Failed a check — rewrite if under the limit
     rewrite_count = state.get("rewrite_count", 0)
-    max_rewrites = state.get("max_rewrites", 3)
+    max_rewrites = state.get("max_rewrites", 2)
     if rewrite_count >= max_rewrites:
         logger.warning("Max rewrites reached. Returning current generation.")
         return END

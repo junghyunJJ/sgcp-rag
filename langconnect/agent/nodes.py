@@ -112,14 +112,29 @@ async def grade_documents(
     logger.info("--- GRADE DOCUMENTS ---")
     question = state["question"]
     documents = state.get("documents", [])
-    grader = get_document_grader(llm)
-    relevant_docs = []
 
-    for doc in documents:
-        content = doc.get("page_content", "")
-        result = await grader.ainvoke({"document": content, "question": question})
-        if result.binary_score.lower() == "yes":
-            relevant_docs.append(doc)
+    if not documents:
+        return {
+            "relevant_documents": [],
+            "steps": ["grade_documents: 0/0 relevant"],
+        }
+
+    numbered_documents = "\n\n".join(
+        f"[{index}]\n{doc.get('page_content', '')}"
+        for index, doc in enumerate(documents)
+    )
+    grader = get_document_grader(llm)
+    result = await grader.ainvoke(
+        {"documents": numbered_documents, "question": question}
+    )
+    relevant_indices = set(result.relevant_indices)
+
+    if any(index < 0 or index >= len(documents) for index in relevant_indices):
+        raise ValueError("Document grader returned an out-of-range document index")
+
+    relevant_docs = [
+        doc for index, doc in enumerate(documents) if index in relevant_indices
+    ]
 
     return {
         "relevant_documents": relevant_docs,

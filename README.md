@@ -456,7 +456,7 @@ curl -X POST http://localhost:8888/collections/<COLLECTION_ID>/agentic-search \
     "question": "What are the main interaction pathways in pancreatic islet differentiation?",
     "search_type": "hybrid",
     "search_limit": 5,
-    "max_rewrites": 3,
+    "max_rewrites": 2,
     "use_wiki_context": true,
     "llm_provider": "auto",
     "llm_model": "qwen3.5:122b",
@@ -499,7 +499,7 @@ Request parameters:
 | `search_type` | `hybrid` | `semantic` / `keyword` / `hybrid` |
 | `search_limit` | `5` | Number of chunks to retrieve per round |
 | `search_filter` | `null` | Metadata filter (JSON object) |
-| `max_rewrites` | `3` | Maximum number of query rewrites (loop guard) |
+| `max_rewrites` | `2` | Maximum number of query rewrites (loop guard) |
 | `use_wiki_context` | `true` | Use existing SNI navigation context (SGCP promotion) when available; set `false` to disable |
 | `llm_provider` | env default | `auto` / `ollama` / `openai` / `google` |
 | `llm_model` | env default | Model name override |
@@ -636,7 +636,7 @@ You are a question-answer assistant grounded in the user's RAG collection.
 | `SNI_LLM_MODEL` | (= shared agent LLM factory) | ✗ | SNI rebuild model name |
 | `SNI_LLM_OPENAI_MODEL` | `gpt-5.4` | ✗ | OpenAI fallback model when `SNI_LLM_PROVIDER=auto` |
 | `SNI_LLM_TEMPERATURE` | (= shared agent LLM factory) | ✗ | SNI rebuild temperature |
-| `AGENT_MAX_REWRITES` | `3` | ✗ | SGCP-RAG loop guard |
+| `AGENT_MAX_REWRITES` | `2` | ✗ | SGCP-RAG loop guard |
 | `QUERY_EXPANSION_LLM_PROVIDER` | `auto` | ✗ |  |
 | `QUERY_EXPANSION_LLM_MODEL` | `qwen3.5:35b` | ✗ |  |
 | `QUERY_EXPANSION_OPENAI_MODEL` | `gpt-5.4` | ✗ |  |

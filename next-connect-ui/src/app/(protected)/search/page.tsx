@@ -42,7 +42,7 @@ export default function SearchPage() {
 
   // Agentic search state
   const [agenticSearchType, setAgenticSearchType] = useState('hybrid')
-  const [agenticMaxRewrites, setAgenticMaxRewrites] = useState(3)
+  const [agenticMaxRewrites, setAgenticMaxRewrites] = useState(2)
   const [agenticFilterJson, setAgenticFilterJson] = useState('')
   const { result: agenticResult, loading: agenticLoading, error: agenticError, execute: executeAgentic, cancel: cancelAgentic } = useAgenticSearch()
 

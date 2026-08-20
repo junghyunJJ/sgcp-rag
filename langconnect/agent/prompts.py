@@ -9,17 +9,16 @@ Five prompts that drive the agent's decision-making loop:
 """
 
 DOCUMENT_GRADER_PROMPT = """\
-You are a grader assessing the relevance of a retrieved document to a user question.
-
-Retrieved document:
-{document}
+You are assessing which retrieved documents are relevant to a user question.
 
 User question:
 {question}
 
-If the document contains keyword(s) or semantic meaning related to the question, \
-grade it as relevant. Give a binary score: 'yes' or 'no' to indicate whether the \
-document is relevant to the question."""
+Retrieved documents:
+{documents}
+
+Return every relevant document index. A document is relevant when it contains \
+keywords or semantic meaning related to the question."""
 
 QUERY_REWRITER_PROMPT = """\
 You are a question re-writer that converts an input question to a better version \

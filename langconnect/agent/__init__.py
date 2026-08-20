@@ -355,7 +355,7 @@ async def run_agentic_search(  # noqa: PLR0913
 
     try:
         if max_rewrites is None:
-            max_rewrites = int(os.getenv("AGENT_MAX_REWRITES", "3"))
+            max_rewrites = int(os.getenv("AGENT_MAX_REWRITES", "2"))
 
         if use_wiki_context:
             wiki_result = resolve_wiki_context(collection_id, question)
