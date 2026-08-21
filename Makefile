@@ -37,7 +37,7 @@ mcp:
 	@echo ""
 	@echo "✅ Copy the above JSON into your MCP client settings."
 
-TEST_FILE ?= tests/unit_tests
+TEST_FILE ?= tests/unit_tests test_agentic_batch_grading.py test_agentic_rewrite_defaults.py
 
 test:
 	./run_tests.sh $(TEST_FILE)
