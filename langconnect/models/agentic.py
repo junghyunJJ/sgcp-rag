@@ -35,7 +35,7 @@ class AgenticSearchQuery(BaseModel):
         None, ge=0, le=1, description="Minimum relevance score threshold"
     )
     filter: dict[str, Any] | None = Field(None, description="Metadata filter")
-    max_rewrites: int = Field(3, ge=0, le=10, description="Max query rewrite attempts")
+    max_rewrites: int = Field(2, ge=0, le=10, description="Max query rewrite attempts")
     llm_provider: str | None = Field(
         None, description="LLM provider override: auto, openai, google, or ollama"
     )

@@ -246,7 +246,7 @@ async def agentic_search(
     question: str,
     search_type: str = "hybrid",
     search_limit: int = 5,
-    max_rewrites: int = 3,
+    max_rewrites: int = 2,
     filter_json: Optional[str] = None,
     use_wiki_context: bool = True,
 ) -> str:
@@ -260,7 +260,7 @@ async def agentic_search(
         question: The question to answer.
         search_type: "semantic", "keyword", or "hybrid" (default).
         search_limit: Max documents per retrieval. Default 5.
-        max_rewrites: Max query rewrite attempts. Default 3.
+        max_rewrites: Max query rewrite attempts. Default 2.
         filter_json: Optional JSON metadata filter string.
         use_wiki_context: Use existing non-authoritative LLM Wiki navigation context during generation.
     """
