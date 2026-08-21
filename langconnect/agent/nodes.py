@@ -30,6 +30,9 @@ from langconnect.database.collections import Collection
 logger = logging.getLogger(__name__)
 
 WIKI_CONTEXT_INJECT_ENV = "WIKI_CONTEXT_INJECT"
+# ponytail: character budget avoids provider-tokenizer coupling; use model-aware
+# token counting only if supported contexts diverge materially.
+DOCUMENT_GRADING_BATCH_CHAR_LIMIT = 24_000
 
 
 def _wiki_inject_enabled() -> bool:
@@ -56,6 +59,35 @@ def _merge_wiki_promoted_documents(
         seen_ids.add(str(doc_id))
         appended += 1
     return merged, appended
+
+
+def _build_document_grading_batches(
+    documents: list[dict[str, Any]],
+) -> list[tuple[str, set[int]]]:
+    """Render context-bounded batches labeled with original document indices."""
+    batches: list[tuple[str, set[int]]] = []
+    parts: list[str] = []
+    indices: set[int] = set()
+    char_count = 0
+
+    for index, document in enumerate(documents):
+        part = f"[{index}]\n{document.get('page_content', '')}"
+        added_chars = len(part) + (2 if parts else 0)
+        if parts and char_count + added_chars > DOCUMENT_GRADING_BATCH_CHAR_LIMIT:
+            batches.append(("\n\n".join(parts), indices))
+            parts = []
+            indices = set()
+            char_count = 0
+            added_chars = len(part)
+
+        parts.append(part)
+        indices.add(index)
+        char_count += added_chars
+
+    if parts:
+        batches.append(("\n\n".join(parts), indices))
+
+    return batches
 
 
 async def retrieve(state: AgentState) -> dict[str, Any]:
@@ -119,18 +151,22 @@ async def grade_documents(
             "steps": ["grade_documents: 0/0 relevant"],
         }
 
-    numbered_documents = "\n\n".join(
-        f"[{index}]\n{doc.get('page_content', '')}"
-        for index, doc in enumerate(documents)
-    )
     grader = get_document_grader(llm)
-    result = await grader.ainvoke(
-        {"documents": numbered_documents, "question": question}
-    )
-    relevant_indices = set(result.relevant_indices)
+    relevant_indices: set[int] = set()
 
-    if any(index < 0 or index >= len(documents) for index in relevant_indices):
-        raise ValueError("Document grader returned an out-of-range document index")
+    for numbered_documents, allowed_indices in _build_document_grading_batches(
+        documents
+    ):
+        result = await grader.ainvoke(
+            {"documents": numbered_documents, "question": question}
+        )
+        batch_indices = set(result.relevant_indices)
+        if not batch_indices <= allowed_indices:
+            raise ValueError(
+                "Document grader returned an out-of-range document index "
+                "outside its grading batch"
+            )
+        relevant_indices.update(batch_indices)
 
     relevant_docs = [
         doc for index, doc in enumerate(documents) if index in relevant_indices

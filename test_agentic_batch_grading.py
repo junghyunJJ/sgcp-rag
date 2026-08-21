@@ -1,4 +1,4 @@
-# ruff: noqa: S101
+# ruff: noqa: PLR2004, S101
 """Regression checks for batched agentic document grading."""
 
 from __future__ import annotations
@@ -28,6 +28,15 @@ DOCUMENTS = [
         "page_content": "Biomedical language models support literature retrieval.",
         "metadata": {"wiki_promoted": True},
     },
+]
+
+LARGE_DOCUMENTS = [
+    {
+        "id": f"large-{index}",
+        "page_content": str(index) * 7_000,
+        "metadata": {"wiki_promoted": index == 3},
+    }
+    for index in range(4)
 ]
 
 
@@ -114,6 +123,63 @@ async def test_grade_documents_rejects_out_of_range_index() -> None:
     ):
         await grade_documents(
             {"question": "anything", "documents": DOCUMENTS},
+            MagicMock(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_grade_documents_splits_large_input_and_merges_global_indices() -> None:
+    """Split large prompts while preserving global indices and source order."""
+    grader = MagicMock()
+    grader.ainvoke = AsyncMock(
+        side_effect=[
+            MagicMock(relevant_indices=[2, 0]),
+            MagicMock(relevant_indices=[3]),
+        ]
+    )
+
+    with patch(
+        "langconnect.agent.nodes.get_document_grader",
+        return_value=grader,
+    ):
+        result = await grade_documents(
+            {"question": "question", "documents": LARGE_DOCUMENTS},
+            MagicMock(),
+        )
+
+    assert grader.ainvoke.await_count == 2
+    first_payload = grader.ainvoke.await_args_list[0].args[0]["documents"]
+    second_payload = grader.ainvoke.await_args_list[1].args[0]["documents"]
+    assert first_payload.startswith("[0]\n")
+    assert "\n\n[1]\n" in first_payload
+    assert "\n\n[2]\n" in first_payload
+    assert "[3]\n" not in first_payload
+    assert second_payload.startswith("[3]\n")
+    assert result["relevant_documents"] == [
+        LARGE_DOCUMENTS[0],
+        LARGE_DOCUMENTS[2],
+        LARGE_DOCUMENTS[3],
+    ]
+    assert result["steps"] == ["grade_documents: 3/4 relevant"]
+
+
+@pytest.mark.asyncio
+async def test_grade_documents_rejects_index_from_another_batch() -> None:
+    """Reject a valid global index absent from the current prompt."""
+    grader = MagicMock()
+    grader.ainvoke = AsyncMock(
+        side_effect=[MagicMock(relevant_indices=[3])],
+    )
+
+    with (
+        patch(
+            "langconnect.agent.nodes.get_document_grader",
+            return_value=grader,
+        ),
+        pytest.raises(ValueError, match="outside its grading batch"),
+    ):
+        await grade_documents(
+            {"question": "question", "documents": LARGE_DOCUMENTS},
             MagicMock(),
         )
 
