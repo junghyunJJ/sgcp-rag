@@ -1,8 +1,9 @@
-# ruff: noqa: PLR2004, S101
+# ruff: noqa: PLR2004, S101, SLF001
 """Regression checks for batched agentic document grading."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,6 +36,15 @@ LARGE_DOCUMENTS = [
         "id": f"large-{index}",
         "page_content": str(index) * 7_000,
         "metadata": {"wiki_promoted": index == 3},
+    }
+    for index in range(4)
+]
+
+TOKEN_DENSE_DOCUMENTS = [
+    {
+        "id": f"dense-{index}",
+        "page_content": "한" * 900,
+        "metadata": {},
     }
     for index in range(4)
 ]
@@ -131,6 +141,8 @@ async def test_grade_documents_rejects_out_of_range_index() -> None:
 async def test_grade_documents_splits_large_input_and_merges_global_indices() -> None:
     """Split large prompts while preserving global indices and source order."""
     grader = MagicMock()
+    llm = MagicMock()
+    llm.num_ctx = 25_100
     grader.ainvoke = AsyncMock(
         side_effect=[
             MagicMock(relevant_indices=[2, 0]),
@@ -144,7 +156,7 @@ async def test_grade_documents_splits_large_input_and_merges_global_indices() ->
     ):
         result = await grade_documents(
             {"question": "question", "documents": LARGE_DOCUMENTS},
-            MagicMock(),
+            llm,
         )
 
     assert grader.ainvoke.await_count == 2
@@ -164,9 +176,82 @@ async def test_grade_documents_splits_large_input_and_merges_global_indices() ->
 
 
 @pytest.mark.asyncio
+async def test_grade_documents_respects_context_for_token_dense_text() -> None:
+    """Keep token-dense document batches inside a 4K model context."""
+    grader = MagicMock()
+    llm = MagicMock()
+    llm.num_ctx = 4_096
+    grader.ainvoke = AsyncMock(
+        side_effect=[
+            MagicMock(relevant_indices=[index])
+            for index in range(len(TOKEN_DENSE_DOCUMENTS))
+        ]
+    )
+
+    with patch(
+        "langconnect.agent.nodes.get_document_grader",
+        return_value=grader,
+    ):
+        result = await grade_documents(
+            {"question": "question", "documents": TOKEN_DENSE_DOCUMENTS},
+            llm,
+        )
+
+    assert grader.ainvoke.await_count == len(TOKEN_DENSE_DOCUMENTS)
+    assert result["relevant_documents"] == TOKEN_DENSE_DOCUMENTS
+
+
+@pytest.mark.asyncio
+async def test_grade_documents_uses_running_ollama_context() -> None:
+    """Use Ollama's active context when num_ctx is not set explicitly."""
+    grader = MagicMock()
+    grader.ainvoke = AsyncMock(
+        side_effect=[
+            MagicMock(relevant_indices=[index])
+            for index in range(len(TOKEN_DENSE_DOCUMENTS))
+        ]
+    )
+    llm = create_chat_model(
+        provider="ollama",
+        model="qwen3.5:122b",
+        temperature=0,
+        base_url="http://localhost:4000",
+    )
+    running_models = SimpleNamespace(
+        models=[
+            SimpleNamespace(
+                model="qwen3.5:122b",
+                context_length=4_096,
+            )
+        ]
+    )
+
+    with (
+        patch(
+            "langconnect.agent.nodes.get_document_grader",
+            return_value=grader,
+        ),
+        patch.object(
+            llm._async_client,
+            "ps",
+            AsyncMock(return_value=running_models),
+        ) as ps,
+    ):
+        await grade_documents(
+            {"question": "question", "documents": TOKEN_DENSE_DOCUMENTS},
+            llm,
+        )
+
+    ps.assert_awaited_once()
+    assert grader.ainvoke.await_count == len(TOKEN_DENSE_DOCUMENTS)
+
+
+@pytest.mark.asyncio
 async def test_grade_documents_rejects_index_from_another_batch() -> None:
     """Reject a valid global index absent from the current prompt."""
     grader = MagicMock()
+    llm = MagicMock()
+    llm.num_ctx = 25_100
     grader.ainvoke = AsyncMock(
         side_effect=[MagicMock(relevant_indices=[3])],
     )
@@ -180,7 +265,7 @@ async def test_grade_documents_rejects_index_from_another_batch() -> None:
     ):
         await grade_documents(
             {"question": "question", "documents": LARGE_DOCUMENTS},
-            MagicMock(),
+            llm,
         )
 
 

@@ -30,9 +30,8 @@ from langconnect.database.collections import Collection
 logger = logging.getLogger(__name__)
 
 WIKI_CONTEXT_INJECT_ENV = "WIKI_CONTEXT_INJECT"
-# ponytail: character budget avoids provider-tokenizer coupling; use model-aware
-# token counting only if supported contexts diverge materially.
-DOCUMENT_GRADING_BATCH_CHAR_LIMIT = 24_000
+DOCUMENT_GRADING_CONTEXT_RESERVE_TOKENS = 1_024
+DOCUMENT_GRADING_FALLBACK_CONTEXT_WINDOW = 4_096
 
 
 def _wiki_inject_enabled() -> bool:
@@ -61,28 +60,64 @@ def _merge_wiki_promoted_documents(
     return merged, appended
 
 
+def _text_token_upper_bound(text: str) -> int:
+    """Return a tokenizer-free upper bound for supported text model tokens."""
+    # ponytail: UTF-8 bytes avoid provider tokenizer downloads; use exact model
+    # tokenizers only if conservative batching becomes a measured bottleneck.
+    return len(text.encode("utf-8"))
+
+
+async def _document_grading_context_window(llm: BaseChatModel) -> int:
+    """Return the configured or active context window for document grading."""
+    configured_context = getattr(llm, "num_ctx", None)
+    if isinstance(configured_context, int) and configured_context > 0:
+        return configured_context
+
+    if type(llm).__module__.startswith("langchain_ollama"):
+        try:
+            running_models = await llm._async_client.ps()  # noqa: SLF001
+            selected_model = str(getattr(llm, "model", ""))
+            for running_model in running_models.models or []:
+                running_name = str(
+                    getattr(running_model, "model", "")
+                    or getattr(running_model, "name", "")
+                )
+                if running_name.removesuffix(":latest") != selected_model.removesuffix(
+                    ":latest"
+                ):
+                    continue
+                active_context = getattr(running_model, "context_length", None)
+                if isinstance(active_context, int) and active_context > 0:
+                    return active_context
+        except Exception:
+            logger.debug("Unable to read the active Ollama context window")
+
+    return DOCUMENT_GRADING_FALLBACK_CONTEXT_WINDOW
+
+
 def _build_document_grading_batches(
     documents: list[dict[str, Any]],
+    token_budget: int,
 ) -> list[tuple[str, set[int]]]:
-    """Render context-bounded batches labeled with original document indices."""
+    """Render token-bounded batches labeled with original document indices."""
     batches: list[tuple[str, set[int]]] = []
     parts: list[str] = []
     indices: set[int] = set()
-    char_count = 0
+    token_count = 0
 
     for index, document in enumerate(documents):
         part = f"[{index}]\n{document.get('page_content', '')}"
-        added_chars = len(part) + (2 if parts else 0)
-        if parts and char_count + added_chars > DOCUMENT_GRADING_BATCH_CHAR_LIMIT:
+        added_tokens = _text_token_upper_bound(part) + (2 if parts else 0)
+        if parts and token_count + added_tokens > token_budget:
             batches.append(("\n\n".join(parts), indices))
             parts = []
             indices = set()
-            char_count = 0
-            added_chars = len(part)
+            token_count = 0
+            added_tokens = _text_token_upper_bound(part)
 
         parts.append(part)
         indices.add(index)
-        char_count += added_chars
+        token_count += added_tokens
 
     if parts:
         batches.append(("\n\n".join(parts), indices))
@@ -153,9 +188,17 @@ async def grade_documents(
 
     grader = get_document_grader(llm)
     relevant_indices: set[int] = set()
+    context_window = await _document_grading_context_window(llm)
+    token_budget = max(
+        1,
+        context_window
+        - DOCUMENT_GRADING_CONTEXT_RESERVE_TOKENS
+        - _text_token_upper_bound(question),
+    )
 
     for numbered_documents, allowed_indices in _build_document_grading_batches(
-        documents
+        documents,
+        token_budget,
     ):
         result = await grader.ainvoke(
             {"documents": numbered_documents, "question": question}
